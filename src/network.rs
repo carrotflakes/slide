@@ -14,6 +14,7 @@ pub struct LayerConfig {
     pub sparsity: f32,
 }
 
+#[derive(Debug)]
 pub struct Case {
     pub indices: Vec<usize>,
     pub values: Vec<f32>,

@@ -1,23 +1,10 @@
-mod adam;
-mod bucket;
-// mod desified_min_hash;
-mod desified_wta_hash;
-mod hasher;
-mod layer;
-mod lsh;
-mod network;
-mod node;
-// mod sparse_random_projection;
-mod train;
-// mod wta_hash;
-
-use desified_wta_hash::DesifiedWtaHash;
-use network::{Case, LayerConfig, Network};
-use node::NodeType;
+use slide::desified_wta_hash::DesifiedWtaHash;
+use slide::network::{Case, LayerConfig, Network};
+use slide::node::NodeType;
 
 fn main() {
     let batch_size = 8; //128;
-    let learning_rate = 0.001;//0.0001;
+    let learning_rate = 0.001; //0.0001;
     let input_size = 1359;
 
     let layers = [
@@ -44,30 +31,36 @@ fn main() {
         Network::<DesifiedWtaHash>::new(batch_size, learning_rate, input_size, &layers);
     println!("network built elapsed: {:?}", start.elapsed());
 
-    dbg!(network.predict(&Case {
-        indices: vec![1],
-        values: vec![1.0],
-        labels: vec![1],
-    }, 0));
-
-    for i in 0..10 {
-    dbg!("train...");
-    network.train(
-        &[Case {
+    dbg!(network.predict(
+        &Case {
             indices: vec![1],
             values: vec![1.0],
             labels: vec![1],
-        }],
-        0,
-        false,
-        false,
-    );
-    dbg!("train end");
+        },
+        0
+    ));
 
-    dbg!(network.predict(&Case {
-        indices: vec![1],
-        values: vec![1.0],
-        labels: vec![1],
-    }, 0));
-}
+    for i in 0..10 {
+        dbg!("train...");
+        network.train(
+            &[Case {
+                indices: vec![1],
+                values: vec![1.0],
+                labels: vec![1],
+            }],
+            0,
+            false,
+            false,
+        );
+        dbg!("train end");
+
+        dbg!(network.predict(
+            &Case {
+                indices: vec![1],
+                values: vec![1.0],
+                labels: vec![1],
+            },
+            0
+        ));
+    }
 }

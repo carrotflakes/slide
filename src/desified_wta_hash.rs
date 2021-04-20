@@ -98,8 +98,7 @@ impl Hasher for DesifiedWtaHash {
                 let index = bin_index + indices[i];
                 let binid = self.indices[index];
                 let weight = weights[i];
-                if binid < self.numhashes {
-                    // バグ？
+                if binid < self.numhashes && values[binid] < weight {
                     values[binid] = weight;
                     hashes[binid] = self.pos[index];
                 }
