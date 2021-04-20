@@ -43,35 +43,34 @@ impl<H: Hasher> Layer<H> {
         sparsity: f32,
         batch_size: usize,
     ) -> Self {
-        let hasher = H::new(k * l, previous_layer_num_of_nodes);
-        let mut hash_tables = Lsh::new(k, l, range_pow);
-
         let mut rand_node: Vec<_> = (0..number_of_nodes as u32).collect();
         let mut rng = rand::thread_rng();
         rand_node.shuffle(&mut rng);
 
-        let mut nodes = Vec::new();
+        let mut nodes = Vec::with_capacity(number_of_nodes);
         for i in 0..number_of_nodes {
             let mut weights = vec![0.0; previous_layer_num_of_nodes];
             weights.fill_with(|| rng.gen_range(0.0..0.01));
+            let bias = rng.gen_range(0.0..0.01);
 
-            let node = Node::new(
+            nodes.push(Node::new(
                 previous_layer_num_of_nodes,
                 i,
                 node_type,
                 batch_size,
                 weights,
-                rng.gen_range(0.0..0.01),
-            );
+                bias,
+            ));
+        }
 
-            {
-                // add to hash table
-                let hashes = hasher.get_hash(&node.weights, previous_layer_num_of_nodes);
-                let hash_indices = hash_tables.hashes_to_indices::<H>(&hashes);
-                hash_tables.add(&hash_indices, i as u32 + 1);
-            }
+        let hasher = H::new(k * l, previous_layer_num_of_nodes);
+        let mut hash_tables = Lsh::new(k, l, range_pow);
 
-            nodes.push(node);
+        // add to hash table
+        for (i, node) in nodes.iter_mut().enumerate() {
+            let hashes = hasher.get_hash(&node.weights);
+            let hash_indices = hash_tables.hashes_to_indices::<H>(&hashes);
+            hash_tables.add(&hash_indices, i as u32 + 1);
         }
 
         Self {
@@ -114,11 +113,9 @@ impl<H: Hasher> Layer<H> {
         let active_nodes: Vec<_> = if sparsity == 1.0 {
             (0..self.nodes.len()).collect()
         } else {
-            let hashes = self.hasher.get_hash_sparse(
-                &status.active_values,
-                status.size(),
-                &status.active_nodes,
-            );
+            let hashes = self
+                .hasher
+                .get_hash_sparse(&status.active_values, &status.active_nodes);
             let hash_indices = self.hash_tables.hashes_to_indices::<H>(&hashes);
             let actives = self.hash_tables.get_raw(&hash_indices);
             // we now have a sparse array of indices of active nodes
@@ -133,11 +130,9 @@ impl<H: Hasher> Layer<H> {
                 }
             }
 
-                // copy sparse array into (dense) map
             for id in actives {
                 assert!(id > 0);
                 active_nodes.insert(id - 1);
-                // *active_nodes.get_mut(&(id - 1)).unwrap() += 1;
             }
 
             let mut rng = rand::thread_rng();
@@ -150,7 +145,7 @@ impl<H: Hasher> Layer<H> {
                 active_nodes.insert(self.rand_node[i]);
             }
 
-            active_nodes.iter().map(|k| *k as usize).collect()
+            active_nodes.iter().map(|v| *v as usize).collect()
         };
 
         let mut active_values = vec![0.0; active_nodes.len()];

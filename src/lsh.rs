@@ -5,7 +5,6 @@ pub struct Lsh {
     k: usize,
     l: usize,
     range_pow: usize,
-    // rand1: Vec<usize>,
 }
 
 impl Lsh {
@@ -18,17 +17,11 @@ impl Lsh {
             }
         }
 
-        // let mut rand1 = vec![0; k * l];
-        // for i in 0..k*l {
-        //     rand1[i] = rand::random::<usize>() | 1;
-        // }
-
         Self {
             bucket,
             k,
             l,
             range_pow,
-            // rand1,
         }
     }
 

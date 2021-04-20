@@ -16,7 +16,7 @@ use network::{Case, LayerConfig, Network};
 use node::NodeType;
 
 fn main() {
-    let batch_size = 1; //128;
+    let batch_size = 8; //128;
     let learning_rate = 0.001;//0.0001;
     let input_size = 1359;
 
@@ -39,9 +39,10 @@ fn main() {
         },
     ];
 
+    let start = std::time::Instant::now();
     let mut network =
         Network::<DesifiedWtaHash>::new(batch_size, learning_rate, input_size, &layers);
-    dbg!("network built");
+    println!("network built elapsed: {:?}", start.elapsed());
 
     dbg!(network.predict(&Case {
         indices: vec![1],
@@ -49,7 +50,7 @@ fn main() {
         labels: vec![1],
     }, 0));
 
-    for i in 0..100 {
+    for i in 0..10 {
     dbg!("train...");
     network.train(
         &[Case {

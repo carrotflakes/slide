@@ -1,7 +1,7 @@
 use crate::{
     adam::{BETA1, BETA2},
     hasher::Hasher,
-    layer::{ Layer, LayerStatus},
+    layer::{Layer, LayerStatus},
     node::NodeType,
 };
 
@@ -118,7 +118,7 @@ impl<H: Hasher> Network<H> {
                 indices,
                 values,
                 labels,
-            } = &cases[i];
+            } = &cases[i % cases.len()];
             let mut layers = Vec::new();
             layers.push(LayerStatus {
                 active_nodes: indices.clone(),
@@ -129,9 +129,7 @@ impl<H: Hasher> Network<H> {
             for j in 0..self.number_of_layers {
                 let sparsity = self.hidden_layers[j].sparsity;
                 let state = self.hidden_layers[j].query_active_node_and_compute_activations(
-                    &layers[j],
-                    i,
-                    labels, // ?????
+                    &layers[j], i, labels, // ?????
                     sparsity,
                 );
                 layers.push(state);
@@ -163,8 +161,7 @@ impl<H: Hasher> Network<H> {
                             i,
                         );
                     } else {
-                        let node =
-                            &mut self.hidden_layers[0].nodes[layers[j + 1].active_nodes[k]];
+                        let node = &mut self.hidden_layers[0].nodes[layers[j + 1].active_nodes[k]];
                         node.back_propagate_first_layer(&indices, &values, learning_rate, i);
                     }
                 }
@@ -189,7 +186,7 @@ impl<H: Hasher> Network<H> {
                 node.bias += learning_rate * node.bias_gradient.gradient();
 
                 if rehash {
-                    let hashes = layer.hasher.get_hash(&node.weights, node.get_size());
+                    let hashes = layer.hasher.get_hash(&node.weights);
                     let hash_indices = layer.hash_tables.hashes_to_indices::<H>(&hashes);
                     layer.hash_tables.add(&hash_indices, i as u32 + 1);
                 }

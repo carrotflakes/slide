@@ -53,19 +53,14 @@ impl Hasher for DesifiedWtaHash {
         }
     }
 
-    fn get_hash(&self, weights: &[f32], length: usize) -> Vec<usize> {
+    fn get_hash(&self, weights: &[f32]) -> Vec<usize> {
         // binsize is the number of times the range is larger than the total number of hashes we need.
-        let mut hashes = vec![0; self.numhashes];
-        let mut values = vec![0.0; self.numhashes];
-
-        for i in 0..self.numhashes {
-            hashes[i] = usize::MAX;
-            values[i] = f32::MIN;
-        }
+        let mut hashes = vec![usize::MAX; self.numhashes];
+        let mut values = vec![f32::MIN; self.numhashes];
 
         for p in 0..self.permute {
             let bin_index = p * self.range_pow;
-            for i in 0..length {
+            for i in 0..weights.len() {
                 let index = bin_index + i;
                 let binid = self.indices[index];
                 let weight = weights[i];
@@ -93,18 +88,13 @@ impl Hasher for DesifiedWtaHash {
         hash_array
     }
 
-    fn get_hash_sparse(&self, weights: &[f32], length: usize, indices: &[usize]) -> Vec<usize> {
-        let mut hashes = vec![0; self.numhashes];
-        let mut values = vec![0.0; self.numhashes];
-
-        for i in 0..self.numhashes {
-            hashes[i] = usize::MAX;
-            values[i] = f32::MIN;
-        }
+    fn get_hash_sparse(&self, weights: &[f32], indices: &[usize]) -> Vec<usize> {
+        let mut hashes = vec![usize::MAX; self.numhashes];
+        let mut values = vec![f32::MIN; self.numhashes];
 
         for p in 0..self.permute {
             let bin_index = p * self.range_pow;
-            for i in 0..length {
+            for i in 0..weights.len() {
                 let index = bin_index + indices[i];
                 let binid = self.indices[index];
                 let weight = weights[i];

@@ -35,8 +35,8 @@ impl Node {
             node_id,
             weights,
             bias,
-            gradients: vec![Default::default(); size],
-            bias_gradient: Default::default(),
+            gradients: vec![Adam::default(); size],
+            bias_gradient: Adam::default(),
         }
     }
 
