@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use rand::{seq::SliceRandom, Rng};
 
@@ -8,26 +8,21 @@ use crate::{
     node::{Node, NodeType},
 };
 
-pub struct InferContext {
-    pub active_nodes_per_layer: Vec<Vec<usize>>,
-    pub active_values_per_layer: Vec<Vec<f32>>,
-    pub sizes: Vec<usize>,
+pub struct LayerStatus {
+    pub active_nodes: Vec<usize>,
+    pub active_values: Vec<f32>,
 }
 
-impl InferContext {
-    pub fn new(size: usize) -> Self {
-        Self {
-            active_nodes_per_layer: vec![Vec::new(); size],
-            active_values_per_layer: vec![Vec::new(); size],
-            sizes: vec![0; size],
-        }
+impl LayerStatus {
+    pub fn size(&self) -> usize {
+        self.active_nodes.len()
     }
 }
 
 pub struct Layer<H: Hasher> {
     node_type: NodeType,
     pub nodes: Vec<Node>,
-    rand_node: Vec<usize>,
+    rand_node: Vec<u32>,
     pub normalization_constants: Vec<f32>,
     k: usize,
     l: usize,
@@ -42,16 +37,16 @@ impl<H: Hasher> Layer<H> {
         number_of_nodes: usize,
         previous_layer_num_of_nodes: usize,
         node_type: NodeType,
-        batch_size: usize,
         k: usize,
         l: usize,
         range_pow: usize,
         sparsity: f32,
+        batch_size: usize,
     ) -> Self {
         let hasher = H::new(k * l, previous_layer_num_of_nodes);
         let mut hash_tables = Lsh::new(k, l, range_pow);
 
-        let mut rand_node: Vec<_> = (0..number_of_nodes).collect();
+        let mut rand_node: Vec<_> = (0..number_of_nodes as u32).collect();
         let mut rng = rand::thread_rng();
         rand_node.shuffle(&mut rng);
 
@@ -73,7 +68,7 @@ impl<H: Hasher> Layer<H> {
                 // add to hash table
                 let hashes = hasher.get_hash(&node.weights, previous_layer_num_of_nodes);
                 let hash_indices = hash_tables.hashes_to_indices::<H>(&hashes);
-                hash_tables.add(&hash_indices, i + 1);
+                hash_tables.add(&hash_indices, i as u32 + 1);
             }
 
             nodes.push(node);
@@ -111,89 +106,79 @@ impl<H: Hasher> Layer<H> {
 
     pub fn query_active_node_and_compute_activations(
         &mut self,
-        InferContext {
-            active_nodes_per_layer,
-            active_values_per_layer,
-            sizes: lengths,
-        }: &mut InferContext,
-        layer_index: usize,
+        status: &LayerStatus,
         input_id: usize,
-        label: &[usize],
+        labels: &[u32],
         sparsity: f32,
-    ) -> usize {
-        let mut _in = 0;
-        let len;
-        if sparsity == 1.0 {
-            len = self.nodes.len();
-            active_nodes_per_layer[layer_index + 1] = (0..len).collect();
+    ) -> LayerStatus {
+        let active_nodes: Vec<_> = if sparsity == 1.0 {
+            (0..self.nodes.len()).collect()
         } else {
             let hashes = self.hasher.get_hash_sparse(
-                &active_values_per_layer[layer_index],
-                lengths[layer_index],
-                &active_nodes_per_layer[layer_index],
+                &status.active_values,
+                status.size(),
+                &status.active_nodes,
             );
             let hash_indices = self.hash_tables.hashes_to_indices::<H>(&hashes);
             let actives = self.hash_tables.get_raw(&hash_indices);
             // we now have a sparse array of indices of active nodes
 
-            // Get candidates from hashtable
-            let mut counts = HashMap::<usize, usize>::new(); // TODO: use set
-                                                             // Make sure that the true label node is in candidates
-            if matches!(self.node_type, NodeType::Softmax) && label.len() > 0 {
-                for label in label.iter() {
-                    counts.insert(*label, self.l);
+            // Get candidates from hashset
+            let mut active_nodes = HashSet::<u32>::new();
+
+            // Make sure that the true label node is in candidates
+            if matches!(self.node_type, NodeType::Softmax) {
+                for label in labels.iter() {
+                    active_nodes.insert(*label);
                 }
             }
 
-            for i in 0..self.l {
                 // copy sparse array into (dense) map
-                for id in &actives[i] {
-                    *counts.get_mut(&(id - 1)).unwrap() += 1;
-                }
-            }
-            _in = counts.len();
-            if _in < 1500 {
-                let mut rng = rand::thread_rng();
-                for i in rng.gen::<usize>() % self.nodes.len()..self.nodes.len() {
-                    if counts.len() >= 1000 {
-                        break;
-                    }
-                    counts.entry(self.rand_node[i]).or_insert(0);
-                }
+            for id in actives {
+                assert!(id > 0);
+                active_nodes.insert(id - 1);
+                // *active_nodes.get_mut(&(id - 1)).unwrap() += 1;
             }
 
-            len = counts.len();
-            active_nodes_per_layer[layer_index + 1] = counts.keys().cloned().collect();
-        }
-        lengths[layer_index + 1] = len;
+            let mut rng = rand::thread_rng();
+            let offset = rng.gen::<usize>() % self.nodes.len();
+            for i in 0..self.nodes.len() {
+                if active_nodes.len() >= 1000 {
+                    break;
+                }
+                let i = (i + offset) % self.nodes.len();
+                active_nodes.insert(self.rand_node[i]);
+            }
 
-        active_values_per_layer[layer_index + 1] = vec![0.0; len];
+            active_nodes.iter().map(|k| *k as usize).collect()
+        };
+
+        let mut active_values = vec![0.0; active_nodes.len()];
 
         // find activation for all ACTIVE nodes in layer
-        for i in 0..len {
-            active_values_per_layer[layer_index + 1][i] =
-                self.nodes[active_nodes_per_layer[layer_index + 1][i]].get_activation(
-                    &active_nodes_per_layer[layer_index],
-                    &active_values_per_layer[layer_index],
-                    lengths[layer_index],
-                    input_id,
-                );
+        for i in 0..active_nodes.len() {
+            active_values[i] = self.nodes[active_nodes[i]].get_activation(
+                &status.active_nodes,
+                &status.active_values,
+                status.size(),
+                input_id,
+            );
         }
 
         if matches!(self.node_type, NodeType::Softmax) {
             self.normalization_constants[input_id] = 0.0;
-            let max_value = active_values_per_layer[layer_index + 1]
-                .iter()
-                .fold(0.0f32, |a, b| a.max(*b));
-            for i in 0..len {
-                let real_activation =
-                    (active_values_per_layer[layer_index + 1][i] - max_value).exp();
-                active_values_per_layer[layer_index + 1][i] = real_activation;
-                self.nodes[active_nodes_per_layer[layer_index + 1][i]]
-                    .set_last_activation(input_id, real_activation);
+            let max_value = active_values.iter().fold(0.0f32, |a, b| a.max(*b));
+            for i in 0..active_nodes.len() {
+                let real_activation = (active_values[i] - max_value).exp();
+                active_values[i] = real_activation;
+                self.nodes[active_nodes[i]].set_last_activation(input_id, real_activation);
                 self.normalization_constants[input_id] += real_activation;
             }
         }
-        _in
+
+        LayerStatus {
+            active_values,
+            active_nodes,
+        }
     }
 }

@@ -2,7 +2,7 @@ pub const BUCKET_SIZE: usize = 128;
 const FIFO: bool = true;
 
 pub struct Bucket {
-    arr: Vec<usize>,
+    arr: [u32; BUCKET_SIZE],
     count: usize,
     next_index: usize,
 }
@@ -10,7 +10,7 @@ pub struct Bucket {
 impl Bucket {
     pub fn new() -> Self {
         Self {
-            arr: vec![0; BUCKET_SIZE],
+            arr: [0; BUCKET_SIZE],
             count: 0,
             next_index: 0,
         }
@@ -20,7 +20,7 @@ impl Bucket {
         self.count
     }
 
-    pub fn add(&mut self, id: usize) -> usize {
+    pub fn add(&mut self, id: u32) -> usize {
         assert!(id > 0);
         self.count += 1;
         // FIFO
@@ -48,7 +48,7 @@ impl Bucket {
         }
     }
 
-    pub fn get_all(&self) -> &[usize] {
+    pub fn get_all(&self) -> &[u32] {
         &self.arr[..self.count]
     }
 }

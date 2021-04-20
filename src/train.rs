@@ -1,17 +1,22 @@
 pub struct Train {
-    pub last_delta_for_bps: f32,
-    pub last_activations: f32,
-    pub last_gradients: f32,
-    pub active_input_ids: usize,
+    pub last_delta_for_bp: f32,
+    pub last_activation: f32,
+    pub active: bool,
 }
 
 impl Train {
     pub fn new() -> Self {
         Self {
-            last_delta_for_bps: 0.0,
-            last_activations: 0.0,
-            last_gradients: 0.0,
-            active_input_ids: 0,
+            last_delta_for_bp: 0.0,
+            last_activation: 0.0,
+            active: false,
+        }
+    }
+
+    pub fn increment_delta(&mut self, increment_value: f32) {
+        assert!(self.active);
+        if self.last_activation > 0.0 {
+            self.last_delta_for_bp += increment_value;
         }
     }
 }

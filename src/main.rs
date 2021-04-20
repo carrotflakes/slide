@@ -12,53 +12,61 @@ mod train;
 // mod wta_hash;
 
 use desified_wta_hash::DesifiedWtaHash;
-use network::{Case, Network};
+use network::{Case, LayerConfig, Network};
 use node::NodeType;
 
 fn main() {
-    let number_of_layers = 3;
-    let batch_size = 128;
-    let learning_rate = 0.0001;
+    let batch_size = 1; //128;
+    let learning_rate = 0.001;//0.0001;
     let input_size = 1359;
-    // let input_size = 135909;
-    // let sizes_of_layers = [128, 670091];
-    let sizes_of_layers = [128, 6700];
-    let k = [2, 6];
-    let l = [20, 50];
-    let range_pow = [6, 18];
-    // let sparsity = [1.0, 0.005, 1.0, 1.0];
-    let sparsity = [1.0, 0.005, 1.0, 1.0];
-    let mut layers_types = vec![NodeType::Relu; number_of_layers];
-    layers_types[number_of_layers - 1] = NodeType::Softmax;
 
-    let mut network = Network::<DesifiedWtaHash>::new(
-        batch_size,
-        learning_rate,
-        input_size,
-        number_of_layers,
-        &sizes_of_layers,
-        layers_types,
-        &k,
-        &l,
-        &range_pow,
-        &sparsity,
-    );
+    let layers = [
+        LayerConfig {
+            size: 128,
+            node_type: NodeType::Relu,
+            k: 2,
+            l: 20,
+            range_pow: 6,
+            sparsity: 1.0,
+        },
+        LayerConfig {
+            size: 1000, //670091,
+            node_type: NodeType::Softmax,
+            k: 6,
+            l: 50,
+            range_pow: 18,
+            sparsity: 0.005,
+        },
+    ];
+
+    let mut network =
+        Network::<DesifiedWtaHash>::new(batch_size, learning_rate, input_size, &layers);
     dbg!("network built");
-    network.test(&[Case {
-        indices: Vec::new(),
-        values: Vec::new(),
-        size: 0,
-        labels: Vec::new(),
-    }]);
+
+    dbg!(network.predict(&Case {
+        indices: vec![1],
+        values: vec![1.0],
+        labels: vec![1],
+    }, 0));
+
+    for i in 0..100 {
+    dbg!("train...");
     network.train(
         &[Case {
-            indices: Vec::new(),
-            values: Vec::new(),
-            size: 0,
-            labels: Vec::new(),
+            indices: vec![1],
+            values: vec![1.0],
+            labels: vec![1],
         }],
         0,
-        true,
-        true,
+        false,
+        false,
     );
+    dbg!("train end");
+
+    dbg!(network.predict(&Case {
+        indices: vec![1],
+        values: vec![1.0],
+        labels: vec![1],
+    }, 0));
+}
 }

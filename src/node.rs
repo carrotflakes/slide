@@ -5,12 +5,12 @@ pub enum NodeType {
     Relu,
     Softmax,
 }
+
 pub struct Node {
     active_inputs: usize,
     node_type: NodeType,
 
     train: Vec<Train>,
-    current_batch_size: usize,
     node_id: usize,
     pub weights: Vec<f32>,
     pub bias: f32,
@@ -32,7 +32,6 @@ impl Node {
             active_inputs: 0,
             node_type,
             train: (0..batch_size).map(|_| Train::new()).collect(),
-            current_batch_size: batch_size,
             node_id,
             weights,
             bias,
@@ -46,18 +45,15 @@ impl Node {
     }
 
     pub fn get_last_activation(&self, input_id: usize) -> f32 {
-        if self.train[input_id].active_input_ids != 1 {
+        if !self.train[input_id].active {
             0.0
         } else {
-            self.train[input_id].last_activations
+            self.train[input_id].last_activation
         }
     }
 
-    pub fn increment_delta(&mut self, input_id: usize, increment_value: f32) {
-        assert!(self.train[input_id].active_input_ids == 1);
-        if self.train[input_id].last_activations > 0.0 {
-            self.train[input_id].last_delta_for_bps += increment_value;
-        }
+    pub fn set_last_activation(&mut self, input_id: usize, real_activation: f32) {
+        self.train[input_id].last_activation = real_activation;
     }
 
     pub fn get_activation(
@@ -67,55 +63,53 @@ impl Node {
         length: usize,
         input_id: usize,
     ) -> f32 {
-        assert!(input_id <= self.current_batch_size);
+        // assert!(input_id <= self.batch_size);
 
         let mut train = &mut self.train[input_id];
 
         // FUTURE TODO: shrink batchsize and check if input is alread active then ignore and ensure backpopagation is ignored too.
-        if train.active_input_ids != 1 {
-            train.active_input_ids = 1;
+        if !train.active {
+            train.active = true;
             self.active_inputs += 1;
         }
 
-        train.last_activations = 0.0;
+        train.last_activation = 0.0;
         for i in 0..length {
-            train.last_activations += self.weights[indices[i]] * values[i];
+            train.last_activation += self.weights[indices[i]] * values[i];
         }
-        train.last_activations += self.bias;
+        train.last_activation += self.bias;
 
         match self.node_type {
             NodeType::Relu => {
-                if train.last_activations < 0.0 {
-                    train.last_activations = 0.0;
-                    train.last_gradients = 1.0;
-                    train.last_delta_for_bps = 0.0;
-                } else {
-                    train.last_gradients = 0.0;
+                if train.last_activation < 0.0 {
+                    train.last_activation = 0.0;
+                    train.last_delta_for_bp = 0.0;
                 }
             }
             NodeType::Softmax => {}
         }
-        train.last_activations
+        train.last_activation
     }
 
     pub fn compute_extra_stats_for_softmax(
         &mut self,
         normalization_constant: f32,
         input_id: usize,
-        label: &[usize],
+        labels: &[u32],
+        batch_size: usize,
     ) {
         let mut train = &mut self.train[input_id];
-        assert!(train.active_input_ids == 1);
+        assert!(train.active);
 
-        train.last_activations /= normalization_constant + 0.0000001;
+        train.last_activation /= normalization_constant + 0.0000001;
 
         // TODO: check gradient
-        train.last_gradients = 1.0;
-        train.last_delta_for_bps = if label.contains(&self.node_id) {
-            (1.0 / label.len() as f32 - train.last_activations) / self.current_batch_size as f32
+        let expect = if labels.contains(&(self.node_id as u32)) {
+            1.0 / labels.len() as f32
         } else {
-            -train.last_activations / self.current_batch_size as f32
+            0.0
         };
+        train.last_delta_for_bp = (expect - train.last_activation) / batch_size as f32;
     }
 
     pub fn back_propagate(
@@ -125,20 +119,18 @@ impl Node {
         _learning_rate: f32,
         input_id: usize,
     ) {
-        let mut train = &mut self.train[input_id];
-        assert!(train.active_input_ids == 1);
+        let train = &mut self.train[input_id];
+        assert!(train.active);
 
         for id in previous_layer_active_node_ids.iter().cloned() {
             let prev_node = &mut previous_nodes[id];
-            prev_node.increment_delta(input_id, train.last_delta_for_bps * self.weights[id]);
-            let grad_t = train.last_delta_for_bps * prev_node.get_last_activation(input_id);
+            prev_node.train[input_id].increment_delta(train.last_delta_for_bp * self.weights[id]);
+            let grad_t = train.last_delta_for_bp * prev_node.get_last_activation(input_id);
             self.gradients[id].update(grad_t);
         }
-        self.bias_gradient.update(train.last_delta_for_bps);
+        self.bias_gradient.update(train.last_delta_for_bp);
 
-        train.active_input_ids = 0;
-        train.last_delta_for_bps = 0.0;
-        train.last_activations = 0.0;
+        *train = Train::new();
         self.active_inputs -= 1;
     }
 
@@ -149,22 +141,16 @@ impl Node {
         _learning_rate: f32,
         input_id: usize,
     ) {
-        let mut train = &mut self.train[input_id];
-        assert!(train.active_input_ids == 1);
+        let train = &mut self.train[input_id];
+        assert!(train.active);
 
         for i in 0..nnz_indices.len() {
-            let grad_t = train.last_delta_for_bps * nnz_values[i];
+            let grad_t = train.last_delta_for_bp * nnz_values[i];
             self.gradients[nnz_indices[i]].update(grad_t);
         }
-        self.bias_gradient.update(train.last_delta_for_bps);
+        self.bias_gradient.update(train.last_delta_for_bp);
 
-        train.active_input_ids = 0;
-        train.last_delta_for_bps = 0.0;
-        train.last_activations = 0.0;
+        *train = Train::new();
         self.active_inputs -= 1;
-    }
-
-    pub fn set_last_activation(&mut self, input_id: usize, real_activation: f32) {
-        self.train[input_id].last_activations = real_activation;
     }
 }
