@@ -1,4 +1,4 @@
-use crate::{adam::Adam, train::Train};
+use crate::{adam::Adam, layer::LayerStatus, train::Train};
 
 #[derive(Clone, Copy)]
 pub enum NodeType {
@@ -80,30 +80,14 @@ impl Node {
     pub fn back_propagate(
         &mut self,
         delta_for_bp: f32,
-        previous_layer_trains: &mut [Train],
-        previous_layer_active_node_ids: &[usize],
+        layer_status: &mut LayerStatus,
         _learning_rate: f32,
     ) {
-        for id in previous_layer_active_node_ids.iter().cloned() {
-            let prev_train = &mut previous_layer_trains[id];
+        for id in layer_status.active_nodes.iter().cloned() {
+            let prev_train = &mut layer_status.trains[id];
             prev_train.increment_delta(delta_for_bp * self.weights[id]);
             let grad_t = delta_for_bp * prev_train.activation;
             self.gradients[id].update(grad_t);
-        }
-        self.bias_gradient.update(delta_for_bp);
-        // self.active_inputs -= 1;
-    }
-
-    pub fn back_propagate_first_layer(
-        &mut self,
-        delta_for_bp: f32,
-        nnz_indices: &[usize],
-        nnz_values: &[f32],
-        _learning_rate: f32,
-    ) {
-        for i in 0..nnz_indices.len() {
-            let grad_t = delta_for_bp * nnz_values[i];
-            self.gradients[nnz_indices[i]].update(grad_t);
         }
         self.bias_gradient.update(delta_for_bp);
         // self.active_inputs -= 1;

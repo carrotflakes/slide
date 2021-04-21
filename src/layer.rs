@@ -12,17 +12,14 @@ use crate::{
 pub struct LayerStatus {
     pub active_nodes: Vec<usize>,
     pub active_values: Vec<f32>,
+    pub trains: Vec<Train>,
+    pub normalization_constant: f32,
 }
 
 impl LayerStatus {
     pub fn size(&self) -> usize {
         self.active_nodes.len()
     }
-}
-
-pub struct TrainContext {
-    pub nodes: Vec<Train>,
-    pub normalization_constant: f32,
 }
 
 pub struct Layer<H: Hasher> {
@@ -99,19 +96,24 @@ impl<H: Hasher> Layer<H> {
 
     pub fn query_active_node_and_compute_activations(
         &self,
-        train_context: &mut TrainContext,
-        status: &LayerStatus,
+        layer_statuses: &mut [LayerStatus],
         labels: &[u32],
         sparsity: f32,
-    ) -> LayerStatus {
-        let active_nodes: Vec<_> = if sparsity == 1.0 {
+    ) {
+        let mut it = layer_statuses.iter_mut();
+        let LayerStatus {
+            active_nodes,
+            active_values,
+            ..
+        } = it.next().unwrap();
+        let layer_status = it.next().unwrap();
+
+        layer_status.active_nodes = if sparsity == 1.0 {
             (0..self.nodes.len()).collect()
         } else {
             // TODO: implement Modes
 
-            let hashes = self
-                .hasher
-                .hash_sparse(&status.active_values, &status.active_nodes);
+            let hashes = self.hasher.hash_sparse(&active_values, &active_nodes);
             let hash_indices = self.hash_tables.hashes_to_indices::<H>(&hashes);
             let actives = self.hash_tables.get_raw(&hash_indices);
             // we now have a sparse array of indices of active nodes
@@ -143,30 +145,30 @@ impl<H: Hasher> Layer<H> {
             active_nodes.iter().map(|v| *v as usize).collect()
         };
 
-        let mut active_values = Vec::with_capacity(active_nodes.len());
-        for i in active_nodes.iter().cloned() {
-            active_values.push(self.nodes[i].compute_activation(
-                &mut train_context.nodes[i],
-                &status.active_nodes,
-                &status.active_values,
-            ));
+        layer_status.active_values = Vec::with_capacity(layer_status.active_nodes.len());
+        for i in layer_status.active_nodes.iter().cloned() {
+            layer_status
+                .active_values
+                .push(self.nodes[i].compute_activation(
+                    &mut layer_status.trains[i],
+                    &active_nodes,
+                    &active_values,
+                ));
         }
 
         if matches!(self.node_type, NodeType::Softmax) {
             // softmax
-            train_context.normalization_constant = 0.0;
-            let max_value = active_values.iter().fold(0.0f32, |a, b| a.max(*b));
-            for i in 0..active_nodes.len() {
-                let real_activation = (active_values[i] - max_value).exp();
-                active_values[i] = real_activation;
-                train_context.nodes[active_nodes[i]].activation = real_activation;
-                train_context.normalization_constant += real_activation;
+            layer_status.normalization_constant = 0.0;
+            let max_value = layer_status
+                .active_values
+                .iter()
+                .fold(0.0f32, |a, b| a.max(*b));
+            for i in 0..layer_status.active_nodes.len() {
+                let real_activation = (layer_status.active_values[i] - max_value).exp();
+                layer_status.active_values[i] = real_activation;
+                layer_status.trains[layer_status.active_nodes[i]].activation = real_activation;
+                layer_status.normalization_constant += real_activation;
             }
-        }
-
-        LayerStatus {
-            active_values,
-            active_nodes,
         }
     }
 }

@@ -13,6 +13,14 @@ impl Train {
         }
     }
 
+    pub fn new_actived() -> Self {
+        Self {
+            delta_for_bp: 0.0,
+            activation: 1.0,
+            active: true,
+        }
+    }
+
     pub fn increment_delta(&mut self, value: f32) {
         assert!(self.active);
         if self.activation > 0.0 {
