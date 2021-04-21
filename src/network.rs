@@ -69,23 +69,18 @@ impl<H: Hasher> Network<H> {
     }
 
     pub fn predict(&mut self, case: &Case, input_id: usize) -> usize {
-        let Case {
-            indices,
-            values,
-            labels,
-        } = case;
         let train_context = &mut self.train_contexts[input_id];
         let mut layers = Vec::new();
         layers.push(LayerStatus {
-            active_nodes: indices.clone(),
-            active_values: values.clone(),
+            active_nodes: case.indices.clone(),
+            active_values: case.values.clone(),
         });
         // inference
         for j in 0..self.number_of_layers {
             let state = self.hidden_layers[j].query_active_node_and_compute_activations(
                 &mut train_context[j],
                 &layers[j],
-                &labels[..0],
+                &[],
                 1.0,
             );
             layers.push(state);
@@ -142,7 +137,7 @@ impl<H: Hasher> Network<H> {
                 let state = self.hidden_layers[j].query_active_node_and_compute_activations(
                     &mut train_context[j],
                     &layers[j],
-                    labels, // ?????
+                    labels,
                     sparsity,
                 );
                 layers.push(state);
@@ -150,36 +145,36 @@ impl<H: Hasher> Network<H> {
 
             // backpropagate
             for j in (0..self.number_of_layers).rev() {
-                for k in 0..layers[j + 1].size() {
-                    let node = &mut self.hidden_layers[j].nodes[layers[j + 1].active_nodes[k]];
+                for id in layers[j + 1].active_nodes.iter().cloned() {
+                    let node = &mut self.hidden_layers[j].nodes[id];
+                    assert!(train_context[j].nodes[id].active);
                     if j == self.number_of_layers - 1 {
                         //TODO: Compute Extra stats: labels[i];
                         let normalization_constant = train_context[j].normalization_constant;
                         node.compute_extra_stats_for_softmax(
-                            &mut train_context[j].nodes[layers[j + 1].active_nodes[k]],
+                            &mut train_context[j].nodes[id],
                             normalization_constant,
+                            id as u32,
                             labels,
                             batch_size,
                         );
                     }
                     if j > 0 {
-                        let mut it = train_context.iter_mut().skip(j - 1);
-                        let prev_layer = it.next().unwrap();
-                        let layer = it.next().unwrap();
                         node.back_propagate(
-                            &mut layer.nodes[layers[j + 1].active_nodes[k]],
-                            &mut prev_layer.nodes,
+                            train_context[j].nodes[id].delta_for_bp,
+                            &mut train_context[j - 1].nodes,
                             &layers[j].active_nodes,
                             learning_rate,
                         );
                     } else {
                         node.back_propagate_first_layer(
-                            &mut train_context[j].nodes[layers[j + 1].active_nodes[k]],
+                            train_context[j].nodes[id].delta_for_bp,
                             &indices,
                             &values,
                             learning_rate,
                         );
                     }
+                    train_context[j].nodes[id] = Train::new();
                 }
             }
         }

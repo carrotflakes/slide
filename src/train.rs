@@ -13,10 +13,10 @@ impl Train {
         }
     }
 
-    pub fn increment_delta(&mut self, increment_value: f32) {
+    pub fn increment_delta(&mut self, value: f32) {
         assert!(self.active);
         if self.activation > 0.0 {
-            self.delta_for_bp += increment_value;
+            self.delta_for_bp += value;
         }
     }
 }

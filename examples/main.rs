@@ -4,7 +4,7 @@ use slide::node::NodeType;
 
 fn main() {
     let batch_size = 64;
-    let learning_rate = 0.001; //0.0001;
+    let learning_rate = 0.01; //0.0001;
     let input_size = 100;
 
     let layers = [
@@ -42,14 +42,15 @@ fn main() {
             rand::random::<usize>() % 5 * 10 + label,
             rand::random::<usize>() % 5 * 10 + label,
             rand::random::<usize>() % 5 * 10 + label,
+            rand::random::<usize>() % (5 * 10),
         ];
-        let mut values = vec![1.0, 1.0, 1.0, 1.0];
         indices.dedup();
+        let mut values = vec![];
         values.resize(indices.len(), 1.0);
         cases.push(Case {
             indices,
             values,
-            labels: vec![label as u32 + 1],
+            labels: vec![label as u32],
         });
     }
     dbg!(&cases[..3]);
@@ -59,7 +60,7 @@ fn main() {
         Network::<DesifiedWtaHash>::new(batch_size, learning_rate, input_size, &layers);
     println!("network built elapsed: {:?}", start.elapsed());
 
-    for i in 0..3000 {
+    for i in 0..1000 {
         // dbg!("train...");
         network.train(&cases[i*batch_size%900..], i, i%20==19, i%20==19);
         // dbg!("train end");

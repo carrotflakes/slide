@@ -10,7 +10,6 @@ pub struct Node {
     // active_inputs: usize,
     node_type: NodeType,
 
-    node_id: usize,
     pub weights: Vec<f32>,
     pub bias: f32,
     pub gradients: Vec<Adam>,
@@ -18,18 +17,11 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(
-        size: usize,
-        node_id: usize,
-        node_type: NodeType,
-        weights: Vec<f32>,
-        bias: f32,
-    ) -> Self {
+    pub fn new(size: usize, node_type: NodeType, weights: Vec<f32>, bias: f32) -> Self {
         assert_eq!(weights.len(), size);
         Self {
             // active_inputs: 0,
             node_type,
-            node_id,
             weights,
             bias,
             gradients: vec![Adam::default(); size],
@@ -41,12 +33,7 @@ impl Node {
         self.gradients.len()
     }
 
-    pub fn compute_activation(
-        &self,
-        train: &mut Train,
-        indices: &[usize],
-        values: &[f32],
-    ) -> f32 {
+    pub fn compute_activation(&self, train: &mut Train, indices: &[usize], values: &[f32]) -> f32 {
         // FUTURE TODO: shrink batchsize and check if input is alread active then ignore and ensure backpopagation is ignored too.
         if !train.active {
             train.active = true;
@@ -75,15 +62,14 @@ impl Node {
         &self,
         train: &mut Train,
         normalization_constant: f32,
+        label: u32,
         labels: &[u32],
         batch_size: usize,
     ) {
-        assert!(train.active);
-
         train.activation /= normalization_constant + 0.0000001;
 
         // TODO: check gradient
-        let expect = if labels.contains(&(self.node_id as u32)) {
+        let expect = if labels.contains(&label) {
             1.0 / labels.len() as f32
         } else {
             0.0
@@ -93,41 +79,33 @@ impl Node {
 
     pub fn back_propagate(
         &mut self,
-        train: &mut Train,
+        delta_for_bp: f32,
         previous_layer_trains: &mut [Train],
         previous_layer_active_node_ids: &[usize],
         _learning_rate: f32,
     ) {
-        assert!(train.active);
-
         for id in previous_layer_active_node_ids.iter().cloned() {
             let prev_train = &mut previous_layer_trains[id];
-            prev_train.increment_delta(train.delta_for_bp * self.weights[id]);
-            let grad_t = train.delta_for_bp * prev_train.activation;
+            prev_train.increment_delta(delta_for_bp * self.weights[id]);
+            let grad_t = delta_for_bp * prev_train.activation;
             self.gradients[id].update(grad_t);
         }
-        self.bias_gradient.update(train.delta_for_bp);
-
-        *train = Train::new();
+        self.bias_gradient.update(delta_for_bp);
         // self.active_inputs -= 1;
     }
 
     pub fn back_propagate_first_layer(
         &mut self,
-        train: &mut Train,
+        delta_for_bp: f32,
         nnz_indices: &[usize],
         nnz_values: &[f32],
         _learning_rate: f32,
     ) {
-        assert!(train.active);
-
         for i in 0..nnz_indices.len() {
-            let grad_t = train.delta_for_bp * nnz_values[i];
+            let grad_t = delta_for_bp * nnz_values[i];
             self.gradients[nnz_indices[i]].update(grad_t);
         }
-        self.bias_gradient.update(train.delta_for_bp);
-
-        *train = Train::new();
+        self.bias_gradient.update(delta_for_bp);
         // self.active_inputs -= 1;
     }
 }

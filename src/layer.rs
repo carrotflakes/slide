@@ -52,14 +52,13 @@ impl<H: Hasher> Layer<H> {
         rand_node.shuffle(&mut rng);
 
         let mut nodes = Vec::with_capacity(number_of_nodes);
-        for i in 0..number_of_nodes {
+        for _ in 0..number_of_nodes {
             let mut weights = vec![0.0; previous_layer_num_of_nodes];
             weights.fill_with(|| rng.gen_range(0.0..0.01));
             let bias = rng.gen_range(0.0..0.01);
 
             nodes.push(Node::new(
                 previous_layer_num_of_nodes,
-                i,
                 node_type,
                 weights,
                 bias,
@@ -108,6 +107,8 @@ impl<H: Hasher> Layer<H> {
         let active_nodes: Vec<_> = if sparsity == 1.0 {
             (0..self.nodes.len()).collect()
         } else {
+            // TODO: implement Modes
+
             let hashes = self
                 .hasher
                 .hash_sparse(&status.active_values, &status.active_nodes);
@@ -130,8 +131,7 @@ impl<H: Hasher> Layer<H> {
                 active_nodes.insert(id - 1);
             }
 
-            let mut rng = rand::thread_rng();
-            let offset = rng.gen::<usize>() % self.nodes.len();
+            let offset = rand::random::<usize>() % self.nodes.len();
             for i in 0..self.nodes.len() {
                 if active_nodes.len() >= 1000 {
                     break;
