@@ -23,26 +23,25 @@ impl Bucket {
     pub fn add(&mut self, id: u32) -> usize {
         assert!(id > 0);
         self.count += 1;
-        // FIFO
         if FIFO {
+            // FIFO
             let index = (self.count - 1) & (BUCKET_SIZE - 1);
             self.arr[index] = id;
             index
         } else {
             // Reservoir Sampling
             if self.next_index == BUCKET_SIZE {
-                let randnum = rand::random::<usize>() % self.count + 1;
-                if randnum == 2 {
-                    let randidx = rand::random::<usize>() % BUCKET_SIZE;
-                    self.arr[randidx] = id;
-                    randidx
+                if rand::random::<usize>() % self.count == 1 {
+                    let index = rand::random::<usize>() % BUCKET_SIZE;
+                    self.arr[index] = id;
+                    index
                 } else {
                     usize::MAX
                 }
             } else {
-                self.arr[self.next_index] = id;
                 let index = self.next_index;
                 self.next_index += 1;
+                self.arr[index] = id;
                 index
             }
         }
