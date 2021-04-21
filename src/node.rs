@@ -58,25 +58,6 @@ impl Node {
         train.activation
     }
 
-    pub fn compute_extra_stats_for_softmax(
-        &self,
-        train: &mut Train,
-        normalization_constant: f32,
-        label: u32,
-        labels: &[u32],
-        batch_size: usize,
-    ) {
-        train.activation /= normalization_constant + 0.0000001;
-
-        // TODO: check gradient
-        let expect = if labels.contains(&label) {
-            1.0 / labels.len() as f32
-        } else {
-            0.0
-        };
-        train.delta_for_bp = (expect - train.activation) / batch_size as f32;
-    }
-
     pub fn back_propagate(
         &mut self,
         delta_for_bp: f32,

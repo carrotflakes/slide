@@ -25,7 +25,7 @@ pub struct Case {
 pub struct Network<H: Hasher> {
     hidden_layers: Vec<Layer<H>>,
     number_of_layers: usize,
-    train_contexts: Vec<Vec<LayerStatus>>,
+    train_statuses: Vec<Vec<LayerStatus>>,
     learning_rate: f32,
 }
 
@@ -54,7 +54,7 @@ impl<H: Hasher> Network<H> {
             hidden_layers,
             learning_rate,
             number_of_layers: layer_configs.len(),
-            train_contexts: (0..batch_size)
+            train_statuses: (0..batch_size)
                 .map(|_| {
                     let mut v = vec![LayerStatus {
                         active_nodes: Vec::new(),
@@ -77,7 +77,7 @@ impl<H: Hasher> Network<H> {
     }
 
     pub fn predict(&mut self, case: &Case, input_id: usize) -> usize {
-        let layer_statuses = &mut self.train_contexts[input_id];
+        let layer_statuses = &mut self.train_statuses[input_id];
         layer_statuses[0].active_nodes = case.indices.clone();
         layer_statuses[0].active_values = case.values.clone();
         // inference
@@ -106,7 +106,7 @@ impl<H: Hasher> Network<H> {
 
     pub fn test(&mut self, cases: &[Case]) -> usize {
         let mut correct_pred = 0;
-        for i in 0..cases.len().min(self.train_contexts.len()) {
+        for i in 0..cases.len().min(self.train_statuses.len()) {
             let predict_class = self.predict(&cases[i], i);
             if cases[i].labels.contains(&(predict_class as u32)) {
                 correct_pred += 1;
@@ -116,24 +116,29 @@ impl<H: Hasher> Network<H> {
     }
 
     pub fn train(&mut self, cases: &[Case], iter: usize, rehash: bool, rebuild: bool) {
-        let batch_size = self.train_contexts.len();
+        let batch_size = self.train_statuses.len().min(cases.len());
         if iter % 6946 == 6945 {
             self.hidden_layers[1].random_nodes();
         }
         let learning_rate = self.learning_rate * (1.0 - BETA2.powi(iter as i32 + 1)).sqrt()
             / (1.0 - BETA1.powi(iter as i32 + 1));
         for i in 0..batch_size {
-            let case = &cases[i % cases.len()];
-            let layer_statuses = &mut self.train_contexts[i];
+            let case = &cases[i];
+            let layer_statuses = &mut self.train_statuses[i];
             layer_statuses[0].active_nodes = case.indices.clone();
             layer_statuses[0].active_values = case.values.clone();
 
             // inference
             for j in 0..self.number_of_layers {
                 let sparsity = self.hidden_layers[j].sparsity;
+                let labels = if j == self.number_of_layers - 1 {
+                    case.labels.as_slice()
+                } else {
+                    &[]
+                };
                 self.hidden_layers[j].query_active_node_and_compute_activations(
                     &mut layer_statuses[j..j + 2],
-                    &case.labels,
+                    labels,
                     sparsity,
                 );
             }
@@ -146,8 +151,7 @@ impl<H: Hasher> Network<H> {
                     if j == self.number_of_layers - 1 {
                         //TODO: Compute Extra stats: labels[i];
                         let normalization_constant = layer_statuses[j + 1].normalization_constant;
-                        node.compute_extra_stats_for_softmax(
-                            &mut layer_statuses[j + 1].trains[id],
+                        layer_statuses[j + 1].trains[id].compute_extra_stats_for_softmax(
                             normalization_constant,
                             id as u32,
                             &case.labels,

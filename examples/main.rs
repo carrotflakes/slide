@@ -6,6 +6,8 @@ fn main() {
     let batch_size = 64;
     let learning_rate = 0.01; //0.0001;
     let input_size = 100;
+    let case_per_rehash = 6400;
+    let case_per_rebuild = 128000;
 
     let layers = [
         LayerConfig {
@@ -34,7 +36,7 @@ fn main() {
         },
     ];
 
-    let mut cases =Vec::new();
+    let mut cases = Vec::new();
     for i in 0..1000 {
         let label = i % 10;
         let mut indices = vec![
@@ -62,12 +64,17 @@ fn main() {
 
     for i in 0..1000 {
         // dbg!("train...");
-        network.train(&cases[i*batch_size%900..], i, i%20==19, i%20==19);
+        let rehash = i % (case_per_rehash / batch_size) == case_per_rehash / batch_size - 1;
+        let rebuild = i % (case_per_rebuild / batch_size) == case_per_rebuild / batch_size - 1;
+        network.train(&cases[i * batch_size % 900..], i, rehash, rebuild);
         // dbg!("train end");
 
-        println!("{:>5}: {:?}",
-        i,
-        (0..10).map(|i|
-        network.predict(&cases[i], 0)).collect::<Vec<_>>());
+        println!(
+            "{:>5}: {:?}",
+            i,
+            (0..10)
+                .map(|i| network.predict(&cases[i], 0))
+                .collect::<Vec<_>>()
+        );
     }
 }

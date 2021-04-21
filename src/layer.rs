@@ -90,8 +90,7 @@ impl<H: Hasher> Layer<H> {
     }
 
     pub fn random_nodes(&mut self) {
-        let mut rng = rand::thread_rng();
-        self.rand_node.shuffle(&mut rng);
+        self.rand_node.shuffle(&mut rand::thread_rng());
     }
 
     pub fn query_active_node_and_compute_activations(
