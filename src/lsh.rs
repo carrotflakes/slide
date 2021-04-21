@@ -38,6 +38,7 @@ impl Lsh {
     }
 
     pub fn add(&mut self, indices: &[usize], id: u32) -> Vec<usize> {
+        // NOTE: unused:
         let mut second_indices = Vec::with_capacity(self.l);
         for i in 0..self.l {
             second_indices.push(self.bucket[i][indices[i]].add(id));

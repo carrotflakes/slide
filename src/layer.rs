@@ -6,6 +6,7 @@ use crate::{
     hasher::Hasher,
     lsh::Lsh,
     node::{Node, NodeType},
+    train::Train,
 };
 
 pub struct LayerStatus {
@@ -19,11 +20,15 @@ impl LayerStatus {
     }
 }
 
+pub struct TrainContext {
+    pub nodes: Vec<Train>,
+    pub normalization_constant: f32,
+}
+
 pub struct Layer<H: Hasher> {
     node_type: NodeType,
     pub nodes: Vec<Node>,
     rand_node: Vec<u32>,
-    pub normalization_constants: Vec<f32>,
     k: usize,
     l: usize,
     previous_layer_num_of_nodes: usize,
@@ -41,7 +46,6 @@ impl<H: Hasher> Layer<H> {
         l: usize,
         range_pow: usize,
         sparsity: f32,
-        batch_size: usize,
     ) -> Self {
         let mut rand_node: Vec<_> = (0..number_of_nodes as u32).collect();
         let mut rng = rand::thread_rng();
@@ -57,7 +61,6 @@ impl<H: Hasher> Layer<H> {
                 previous_layer_num_of_nodes,
                 i,
                 node_type,
-                batch_size,
                 weights,
                 bias,
             ));
@@ -68,7 +71,7 @@ impl<H: Hasher> Layer<H> {
 
         // add to hash table
         for (i, node) in nodes.iter_mut().enumerate() {
-            let hashes = hasher.get_hash(&node.weights);
+            let hashes = hasher.hash(&node.weights);
             let hash_indices = hash_tables.hashes_to_indices::<H>(&hashes);
             hash_tables.add(&hash_indices, i as u32 + 1);
         }
@@ -77,14 +80,6 @@ impl<H: Hasher> Layer<H> {
             node_type,
             nodes,
             rand_node,
-            normalization_constants: vec![
-                0.0;
-                if matches!(node_type, NodeType::Softmax) {
-                    batch_size
-                } else {
-                    0
-                }
-            ],
             k,
             l,
             previous_layer_num_of_nodes,
@@ -104,9 +99,9 @@ impl<H: Hasher> Layer<H> {
     }
 
     pub fn query_active_node_and_compute_activations(
-        &mut self,
+        &self,
+        train_context: &mut TrainContext,
         status: &LayerStatus,
-        input_id: usize,
         labels: &[u32],
         sparsity: f32,
     ) -> LayerStatus {
@@ -115,7 +110,7 @@ impl<H: Hasher> Layer<H> {
         } else {
             let hashes = self
                 .hasher
-                .get_hash_sparse(&status.active_values, &status.active_nodes);
+                .hash_sparse(&status.active_values, &status.active_nodes);
             let hash_indices = self.hash_tables.hashes_to_indices::<H>(&hashes);
             let actives = self.hash_tables.get_raw(&hash_indices);
             // we now have a sparse array of indices of active nodes
@@ -148,26 +143,24 @@ impl<H: Hasher> Layer<H> {
             active_nodes.iter().map(|v| *v as usize).collect()
         };
 
-        let mut active_values = vec![0.0; active_nodes.len()];
-
-        // find activation for all ACTIVE nodes in layer
-        for i in 0..active_nodes.len() {
-            active_values[i] = self.nodes[active_nodes[i]].get_activation(
+        let mut active_values = Vec::with_capacity(active_nodes.len());
+        for i in active_nodes.iter().cloned() {
+            active_values.push(self.nodes[i].compute_activation(
+                &mut train_context.nodes[i],
                 &status.active_nodes,
                 &status.active_values,
-                status.size(),
-                input_id,
-            );
+            ));
         }
 
         if matches!(self.node_type, NodeType::Softmax) {
-            self.normalization_constants[input_id] = 0.0;
+            // softmax
+            train_context.normalization_constant = 0.0;
             let max_value = active_values.iter().fold(0.0f32, |a, b| a.max(*b));
             for i in 0..active_nodes.len() {
                 let real_activation = (active_values[i] - max_value).exp();
                 active_values[i] = real_activation;
-                self.nodes[active_nodes[i]].set_last_activation(input_id, real_activation);
-                self.normalization_constants[input_id] += real_activation;
+                train_context.nodes[active_nodes[i]].activation = real_activation;
+                train_context.normalization_constant += real_activation;
             }
         }
 

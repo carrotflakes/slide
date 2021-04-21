@@ -13,7 +13,7 @@ pub struct DesifiedWtaHash {
 }
 
 impl DesifiedWtaHash {
-    fn get_rand_double_hash(&self, binid: usize, count: usize) -> usize {
+    fn rand_double_hash(&self, binid: usize, count: usize) -> usize {
         let tohash = ((binid + 1) << 6) + count;
         (self.rand_hash * tohash << 3) >> (32 - self.lognumhashes) // lognumhash needs to be ceiled.
     }
@@ -53,7 +53,7 @@ impl Hasher for DesifiedWtaHash {
         }
     }
 
-    fn get_hash(&self, weights: &[f32]) -> Vec<usize> {
+    fn hash(&self, weights: &[f32]) -> Vec<usize> {
         // binsize is the number of times the range is larger than the total number of hashes we need.
         let mut hashes = vec![usize::MAX; self.numhashes];
         let mut values = vec![f32::MIN; self.numhashes];
@@ -76,7 +76,7 @@ impl Hasher for DesifiedWtaHash {
             let mut next = hashes[i];
             let mut count = 0;
             while next == usize::MAX {
-                next = hashes[self.get_rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
+                next = hashes[self.rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
                 count += 1;
                 if count > 100 {
                     // Densification failure
@@ -88,7 +88,7 @@ impl Hasher for DesifiedWtaHash {
         hash_array
     }
 
-    fn get_hash_sparse(&self, weights: &[f32], indices: &[usize]) -> Vec<usize> {
+    fn hash_sparse(&self, weights: &[f32], indices: &[usize]) -> Vec<usize> {
         let mut hashes = vec![usize::MAX; self.numhashes];
         let mut values = vec![f32::MIN; self.numhashes];
 
@@ -110,7 +110,7 @@ impl Hasher for DesifiedWtaHash {
             let mut next = hashes[i];
             let mut count = 0;
             while next == usize::MAX {
-                next = hashes[self.get_rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
+                next = hashes[self.rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
                 count += 1;
                 if count > 100 {
                     // Densification failure
