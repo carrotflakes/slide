@@ -1,4 +1,4 @@
-use crate::{adam::Adam, layer::LayerStatus, train::Train};
+use crate::{adam::Adam, layer::LayerStatus};
 
 #[derive(Clone, Copy)]
 pub enum NodeType {
@@ -7,9 +7,6 @@ pub enum NodeType {
 }
 
 pub struct Node {
-    // active_inputs: usize,
-    node_type: NodeType,
-
     pub weights: Vec<f32>,
     pub bias: f32,
     pub gradients: Vec<Adam>,
@@ -17,11 +14,9 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(size: usize, node_type: NodeType, weights: Vec<f32>, bias: f32) -> Self {
+    pub fn new(size: usize, weights: Vec<f32>, bias: f32) -> Self {
         assert_eq!(weights.len(), size);
         Self {
-            // active_inputs: 0,
-            node_type,
             weights,
             bias,
             gradients: vec![Adam::default(); size],
@@ -30,47 +25,32 @@ impl Node {
     }
 
     pub fn get_size(&self) -> usize {
-        self.gradients.len()
+        self.weights.len()
     }
 
-    pub fn compute_activation(&self, train: &mut Train, indices: &[usize], values: &[f32]) -> f32 {
-        // FUTURE TODO: shrink batchsize and check if input is alread active then ignore and ensure backpopagation is ignored too.
-        if !train.active {
-            train.active = true;
-            // self.active_inputs += 1;
-        }
-
-        train.activation = 0.0;
+    pub fn compute_value(&self, indices: &[usize], values: &[f32]) -> f32 {
+        let mut value = 0.0;
         for i in 0..indices.len() {
-            train.activation += self.weights[indices[i]] * values[i];
+            value += self.weights[indices[i]] * values[i];
         }
-        train.activation += self.bias;
-
-        match self.node_type {
-            NodeType::Relu => {
-                if train.activation < 0.0 {
-                    train.activation = 0.0;
-                    train.delta_for_bp = 0.0;
-                }
-            }
-            NodeType::Softmax => {}
-        }
-        train.activation
+        value + self.bias
     }
 
     pub fn back_propagate(
         &mut self,
-        delta_for_bp: f32,
+        delta: f32,
         layer_status: &mut LayerStatus,
         _learning_rate: f32,
     ) {
-        for id in layer_status.active_nodes.iter().cloned() {
-            let prev_train = &mut layer_status.trains[id];
-            prev_train.increment_delta(delta_for_bp * self.weights[id]);
-            let grad_t = delta_for_bp * prev_train.activation;
+        for i in 0..layer_status.active_nodes.len() {
+            let id = layer_status.active_nodes[i];
+            let value = layer_status.active_values[i];
+            if value > 0.0 {
+                layer_status.deltas[i] += delta * self.weights[id];
+            }
+            let grad_t = delta * value;
             self.gradients[id].update(grad_t);
         }
-        self.bias_gradient.update(delta_for_bp);
-        // self.active_inputs -= 1;
+        self.bias_gradient.update(delta);
     }
 }

@@ -3,7 +3,6 @@ use crate::{
     hasher::Hasher,
     layer::{Layer, LayerStatus},
     node::NodeType,
-    train::Train,
 };
 
 pub struct LayerConfig {
@@ -56,20 +55,8 @@ impl<H: Hasher> Network<H> {
             number_of_layers: layer_configs.len(),
             train_statuses: (0..batch_size)
                 .map(|_| {
-                    let mut v = vec![LayerStatus {
-                        active_nodes: Vec::new(),
-                        active_values: Vec::new(),
-                        trains: (0..input_size).map(|_| Train::new_actived()).collect(),
-                        normalization_constant: 0.0,
-                    }];
-                    for config in layer_configs.iter() {
-                        v.push(LayerStatus {
-                            active_nodes: Vec::new(),
-                            active_values: Vec::new(),
-                            trains: (0..config.size).map(|_| Train::new()).collect(),
-                            normalization_constant: 0.0,
-                        });
-                    }
+                    let mut v = Vec::new();
+                    v.resize_with(layer_configs.len() + 1, Default::default);
                     v
                 })
                 .collect(),
@@ -78,8 +65,7 @@ impl<H: Hasher> Network<H> {
 
     pub fn predict(&mut self, case: &Case, input_id: usize) -> usize {
         let layer_statuses = &mut self.train_statuses[input_id];
-        layer_statuses[0].active_nodes = case.indices.clone();
-        layer_statuses[0].active_values = case.values.clone();
+        layer_statuses[0] = LayerStatus::from_input(&case.indices, &case.values);
         // inference
         for j in 0..self.number_of_layers {
             self.hidden_layers[j].query_active_node_and_compute_activations(
@@ -94,11 +80,10 @@ impl<H: Hasher> Network<H> {
         let mut predict_class = 0;
         let last_layer = &layer_statuses[self.number_of_layers];
         for j in 0..last_layer.size() {
-            let class = last_layer.active_nodes[j];
-            let act = last_layer.trains[class].activation;
+            let act = last_layer.active_values[j];
             if max_act < act {
                 max_act = act;
-                predict_class = class;
+                predict_class = last_layer.active_nodes[j];
             }
         }
         predict_class
@@ -122,11 +107,11 @@ impl<H: Hasher> Network<H> {
         }
         let learning_rate = self.learning_rate * (1.0 - BETA2.powi(iter as i32 + 1)).sqrt()
             / (1.0 - BETA1.powi(iter as i32 + 1));
+
         for i in 0..batch_size {
             let case = &cases[i];
             let layer_statuses = &mut self.train_statuses[i];
-            layer_statuses[0].active_nodes = case.indices.clone();
-            layer_statuses[0].active_values = case.values.clone();
+            layer_statuses[0] = LayerStatus::from_input(&case.indices, &case.values);
 
             // inference
             for j in 0..self.number_of_layers {
@@ -145,51 +130,41 @@ impl<H: Hasher> Network<H> {
 
             // backpropagate
             for j in (0..self.number_of_layers).rev() {
-                for id in layer_statuses[j + 1].active_nodes.clone() {
-                    let node = &mut self.hidden_layers[j].nodes[id];
-                    assert!(layer_statuses[j + 1].trains[id].active);
+                for k in 0..layer_statuses[j + 1].active_nodes.len() {
+                    let id = layer_statuses[j + 1].active_nodes[k];
                     if j == self.number_of_layers - 1 {
                         //TODO: Compute Extra stats: labels[i];
                         let normalization_constant = layer_statuses[j + 1].normalization_constant;
-                        layer_statuses[j + 1].trains[id].compute_extra_stats_for_softmax(
-                            normalization_constant,
-                            id as u32,
-                            &case.labels,
-                            batch_size,
-                        );
+
+                        let activation = layer_statuses[j + 1].active_values[k]
+                            / normalization_constant
+                            + 0.0000001;
+
+                        // TODO: check gradient
+                        let expect = if case.labels.contains(&(id as u32)) {
+                            1.0 / case.labels.len() as f32
+                        } else {
+                            0.0
+                        };
+                        layer_statuses[j + 1].deltas[k] = (expect - activation) / batch_size as f32;
                     }
-                    node.back_propagate(
-                        layer_statuses[j + 1].trains[id].delta_for_bp,
+                    self.hidden_layers[j].nodes[id].back_propagate(
+                        layer_statuses[j + 1].deltas[k],
                         &mut layer_statuses[j],
                         learning_rate,
                     );
-                    layer_statuses[j + 1].trains[id] = Train::new();
                 }
             }
         }
 
         // update weights
         for layer in &mut self.hidden_layers {
-            let rehash = rehash && layer.sparsity < 1.0;
-            let rebuild = rebuild && layer.sparsity < 1.0;
-            if rehash {
-                layer.hash_tables.clear();
-            }
-            if rebuild {
+            layer.update_weights(learning_rate);
+            if rebuild && layer.sparsity < 1.0 {
                 layer.update_table();
             }
-            for i in 0..layer.nodes.len() {
-                let mut node = &mut layer.nodes[i];
-                for j in 0..node.get_size() {
-                    node.weights[j] += learning_rate * node.gradients[j].gradient();
-                }
-                node.bias += learning_rate * node.bias_gradient.gradient();
-
-                if rehash {
-                    let hashes = layer.hasher.hash(&node.weights);
-                    let hash_indices = layer.hash_tables.hashes_to_indices::<H>(&hashes);
-                    layer.hash_tables.add(&hash_indices, i as u32 + 1);
-                }
+            if rehash && layer.sparsity < 1.0 {
+                layer.rehash();
             }
         }
     }

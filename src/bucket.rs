@@ -16,12 +16,16 @@ impl Bucket {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.count = 0;
+        self.next_index = 0;
+    }
+
     pub fn get_size(&self) -> usize {
         self.count
     }
 
     pub fn add(&mut self, id: u32) -> usize {
-        assert!(id > 0);
         self.count += 1;
         if FIFO {
             // FIFO

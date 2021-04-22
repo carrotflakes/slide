@@ -1,4 +1,4 @@
-use slide::desified_wta_hash::DesifiedWtaHash;
+use slide::densified_wta_hash::DensifiedWtaHash;
 use slide::network::{Case, LayerConfig, Network};
 use slide::node::NodeType;
 
@@ -59,7 +59,7 @@ fn main() {
 
     let start = std::time::Instant::now();
     let mut network =
-        Network::<DesifiedWtaHash>::new(batch_size, learning_rate, input_size, &layers);
+        Network::<DensifiedWtaHash>::new(batch_size, learning_rate, input_size, &layers);
     println!("network built elapsed: {:?}", start.elapsed());
 
     for i in 0..1000 {

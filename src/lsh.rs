@@ -28,29 +28,26 @@ impl Lsh {
     pub fn clear(&mut self) {
         for buckets in &mut self.bucket {
             for bucket in buckets {
-                *bucket = Bucket::new();
+                bucket.clear();
             }
         }
     }
 
     pub fn hashes_to_indices<H: Hasher>(&self, hashes: &[usize]) -> Vec<usize> {
-        H::hashes_to_index(hashes, self.k, self.l, self.range_pow)
+        H::hashes_to_indices(hashes, self.k, self.l, self.range_pow)
     }
 
-    pub fn add(&mut self, indices: &[usize], id: u32) -> Vec<usize> {
-        // NOTE: unused:
-        let mut second_indices = Vec::with_capacity(self.l);
+    pub fn add(&mut self, indices: &[usize], id: u32) {
         for i in 0..self.l {
-            second_indices.push(self.bucket[i][indices[i]].add(id));
+            self.bucket[i][indices[i]].add(id);
         }
-        second_indices
     }
 
-    pub fn get_raw(&self, indices: &[usize]) -> Vec<u32> {
+    pub fn get_ids(&self, indices: &[usize]) -> Vec<u32> {
         (0..self.l)
             .flat_map(|i| self.bucket[i][indices[i]].get_all())
             .cloned()
-            .collect() // TODO: many clone!!!!!
+            .collect()
     }
 
     #[allow(dead_code)]

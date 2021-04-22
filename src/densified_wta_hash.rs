@@ -2,7 +2,7 @@ use crate::hasher::Hasher;
 
 const BIN_SIZE: usize = 8;
 
-pub struct DesifiedWtaHash {
+pub struct DensifiedWtaHash {
     rand_hash: usize,
     numhashes: usize,
     range_pow: usize,
@@ -12,40 +12,55 @@ pub struct DesifiedWtaHash {
     permute: usize,
 }
 
-impl DesifiedWtaHash {
+impl DensifiedWtaHash {
     fn rand_double_hash(&self, binid: usize, count: usize) -> usize {
         let tohash = ((binid + 1) << 6) + count;
         (self.rand_hash * tohash << 3) >> (32 - self.lognumhashes) // lognumhash needs to be ceiled.
     }
+
+    fn densify(&self, hashes: Vec<usize>) -> Vec<usize> {
+        let mut densified_hashes = Vec::with_capacity(self.numhashes);
+        for i in 0..self.numhashes {
+            let mut hash = hashes[i];
+            let mut count = 0;
+            while hash == usize::MAX {
+                hash = hashes[self.rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
+                count += 1;
+                if count > 100 {
+                    // Densification failure
+                    break;
+                }
+            }
+            densified_hashes.push(hash);
+        }
+        densified_hashes
+    }
 }
 
-impl Hasher for DesifiedWtaHash {
-    fn new(size: usize, number_of_bits_to_hash: usize) -> Self {
+impl Hasher for DensifiedWtaHash {
+    fn new(size: usize, number_of_bits: usize) -> Self {
         use rand::{seq::SliceRandom, Rng};
 
         let mut rng = rand::thread_rng();
 
-        let permute =
-            (size as f32 * BIN_SIZE as f32 / number_of_bits_to_hash as f32).ceil() as usize;
+        let permute = (size as f32 * BIN_SIZE as f32 / number_of_bits as f32).ceil() as usize;
 
-        let mut n_array: Vec<usize> = (0..number_of_bits_to_hash).collect();
-        let mut indices = vec![0; number_of_bits_to_hash * permute];
-        let mut pos = vec![0; number_of_bits_to_hash * permute];
+        let mut n_array: Vec<usize> = (0..number_of_bits).collect();
+        let mut indices = vec![0; number_of_bits * permute];
+        let mut pos = vec![0; number_of_bits * permute];
 
         for p in 0..permute {
             n_array.shuffle(&mut rng);
-            for i in 0..number_of_bits_to_hash {
-                indices[p * number_of_bits_to_hash + n_array[i]] =
-                    (p * number_of_bits_to_hash + i) / BIN_SIZE;
-                pos[p * number_of_bits_to_hash + n_array[i]] =
-                    (p * number_of_bits_to_hash + i) % BIN_SIZE;
+            for i in 0..number_of_bits {
+                indices[p * number_of_bits + n_array[i]] = (p * number_of_bits + i) / BIN_SIZE;
+                pos[p * number_of_bits + n_array[i]] = (p * number_of_bits + i) % BIN_SIZE;
             }
         }
 
-        DesifiedWtaHash {
+        DensifiedWtaHash {
             rand_hash: rng.gen::<usize>() | 1,
             numhashes: size,
-            range_pow: number_of_bits_to_hash,
+            range_pow: number_of_bits,
             lognumhashes: (size as f32).log2() as usize,
             indices,
             pos,
@@ -71,21 +86,7 @@ impl Hasher for DesifiedWtaHash {
             }
         }
 
-        let mut hash_array = vec![0; self.numhashes];
-        for i in 0..self.numhashes {
-            let mut next = hashes[i];
-            let mut count = 0;
-            while next == usize::MAX {
-                next = hashes[self.rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
-                count += 1;
-                if count > 100 {
-                    // Densification failure
-                    break;
-                }
-            }
-            hash_array[i] = next;
-        }
-        hash_array
+        self.densify(hashes)
     }
 
     fn hash_sparse(&self, weights: &[f32], indices: &[usize]) -> Vec<usize> {
@@ -105,24 +106,10 @@ impl Hasher for DesifiedWtaHash {
             }
         }
 
-        let mut hash_array = vec![0; self.numhashes];
-        for i in 0..self.numhashes {
-            let mut next = hashes[i];
-            let mut count = 0;
-            while next == usize::MAX {
-                next = hashes[self.rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
-                count += 1;
-                if count > 100 {
-                    // Densification failure
-                    break;
-                }
-            }
-            hash_array[i] = next;
-        }
-        hash_array
+        self.densify(hashes)
     }
 
-    fn hashes_to_index(hashes:  &[usize], k: usize, l: usize, _range_pow: usize) -> Vec<usize> {
+    fn hashes_to_indices(hashes: &[usize], k: usize, l: usize, _range_pow: usize) -> Vec<usize> {
         (0..l)
             .map(|i| {
                 let mut index = 0;
