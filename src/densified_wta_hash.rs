@@ -24,7 +24,7 @@ impl DensifiedWtaHash {
             let mut hash = hashes[i];
             let mut count = 0;
             while hash == usize::MAX {
-                hash = hashes[self.rand_double_hash(i, count).min(self.numhashes)]; // kills GPU.
+                hash = hashes[self.rand_double_hash(i, count).min(self.numhashes - 1)];
                 count += 1;
                 if count > 100 {
                     // Densification failure
