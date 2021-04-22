@@ -174,6 +174,16 @@ impl<H: Hasher> Layer<H> {
             }
             NodeType::Softmax => {
                 layer_status.normalization_constant = 0.0;
+                let sum_value: f32 = layer_status
+                    .active_values.iter().map(|v| v.exp()).sum();
+                for i in 0..layer_status.active_nodes.len() {
+                    let value = layer_status.active_values[i].exp() / sum_value;
+                    layer_status.active_values[i] = value;
+                    layer_status.normalization_constant += value;
+                }
+            }
+            NodeType::OriginalSoftmax => {
+                layer_status.normalization_constant = 0.0;
                 let max_value = layer_status
                     .active_values
                     .iter()

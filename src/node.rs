@@ -4,6 +4,7 @@ use crate::{adam::Adam, layer::LayerStatus};
 pub enum NodeType {
     Relu,
     Softmax,
+    OriginalSoftmax,
 }
 
 pub struct Node {
