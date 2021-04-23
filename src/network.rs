@@ -100,25 +100,28 @@ impl<H: Hasher> Network<H> {
     }
 
     pub fn train(&mut self, cases: &[Case], iter: usize, rehash: bool, rebuild: bool) {
+        use rayon::prelude::*;
+
         let batch_size = self.train_statuses.len().min(cases.len());
         if iter % 6946 == 6945 {
             self.hidden_layers[1].random_nodes();
         }
 
-        for i in 0..batch_size {
+        let hidden_layers = &self.hidden_layers;
+        let number_of_layers = self.number_of_layers;
+        self.train_statuses.par_iter_mut().enumerate().for_each(|(i, layer_statuses)| {
             let case = &cases[i];
-            let layer_statuses = &mut self.train_statuses[i];
             layer_statuses[0] = LayerStatus::from_input(&case.indices, &case.values);
 
             // inference
-            for j in 0..self.number_of_layers {
-                let sparsity = self.hidden_layers[j].sparsity;
-                let force_activate_nodes = if j == self.number_of_layers - 1 {
+            for j in 0..number_of_layers {
+                let sparsity = hidden_layers[j].sparsity;
+                let force_activate_nodes = if j == number_of_layers - 1 {
                     case.labels.as_slice()
                 } else {
                     &[]
                 };
-                self.hidden_layers[j].query_active_node_and_compute_activations(
+                hidden_layers[j].query_active_node_and_compute_activations(
                     &mut layer_statuses[j..j + 2],
                     force_activate_nodes,
                     sparsity,
@@ -126,14 +129,14 @@ impl<H: Hasher> Network<H> {
             }
 
             // compute loss
-            let normalization_constant: f32 = layer_statuses[self.number_of_layers]
+            let normalization_constant: f32 = layer_statuses[number_of_layers]
                 .active_values
                 .iter()
                 .sum();
-            for k in 0..layer_statuses[self.number_of_layers].active_nodes.len() {
-                let id = layer_statuses[self.number_of_layers].active_nodes[k];
+            for k in 0..layer_statuses[number_of_layers].active_nodes.len() {
+                let id = layer_statuses[number_of_layers].active_nodes[k];
                 //TODO: Compute Extra stats: labels[i];\
-                let activation = layer_statuses[self.number_of_layers].active_values[k]
+                let activation = layer_statuses[number_of_layers].active_values[k]
                     / normalization_constant
                     + 0.0000001;
 
@@ -143,15 +146,16 @@ impl<H: Hasher> Network<H> {
                 } else {
                     0.0
                 };
-                layer_statuses[self.number_of_layers].deltas[k] =
+                layer_statuses[number_of_layers].deltas[k] =
                     (expect - activation) / batch_size as f32;
             }
 
             // backpropagate
-            for j in (0..self.number_of_layers).rev() {
-                self.hidden_layers[j].back_propagate(&mut layer_statuses[j..j + 2]);
+            for j in (0..number_of_layers).rev() {#[allow(mutable_transmutes)]
+                let layer = unsafe {std::mem::transmute::<_, &mut Layer<H>>(&hidden_layers[j])};
+                layer.back_propagate(&mut layer_statuses[j..j + 2]);
             }
-        }
+        });
 
         let learning_rate = self.learning_rate * (1.0 - BETA2.powi(iter as i32 + 1)).sqrt()
             / (1.0 - BETA1.powi(iter as i32 + 1));

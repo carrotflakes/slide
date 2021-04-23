@@ -1,4 +1,4 @@
-pub trait Hasher {
+pub trait Hasher: Send + Sync {
     fn new(size: usize, number_of_bits_to_hash: usize) -> Self;
     fn hash(&self, weights: &[f32]) -> Vec<usize>;
     fn hash_sparse(&self, weights: &[f32], indices: &[usize]) -> Vec<usize>;
