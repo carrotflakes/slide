@@ -1,8 +1,7 @@
 use crate::{
     adam::{BETA1, BETA2},
     hasher::Hasher,
-    layer::{Layer, LayerStatus},
-    node::NodeType,
+    layer::{Layer, LayerStatus, NodeType},
 };
 
 pub struct LayerConfig {
@@ -75,7 +74,7 @@ impl<H: Hasher> Network<H> {
             );
         }
 
-        // compute softmax
+        // compute top-1
         let mut max_act = f32::NEG_INFINITY;
         let mut predict_class = 0;
         let last_layer = &layer_statuses[self.number_of_layers];
@@ -105,8 +104,6 @@ impl<H: Hasher> Network<H> {
         if iter % 6946 == 6945 {
             self.hidden_layers[1].random_nodes();
         }
-        let learning_rate = self.learning_rate * (1.0 - BETA2.powi(iter as i32 + 1)).sqrt()
-            / (1.0 - BETA1.powi(iter as i32 + 1));
 
         for i in 0..batch_size {
             let case = &cases[i];
@@ -116,46 +113,48 @@ impl<H: Hasher> Network<H> {
             // inference
             for j in 0..self.number_of_layers {
                 let sparsity = self.hidden_layers[j].sparsity;
-                let labels = if j == self.number_of_layers - 1 {
+                let force_activate_nodes = if j == self.number_of_layers - 1 {
                     case.labels.as_slice()
                 } else {
                     &[]
                 };
                 self.hidden_layers[j].query_active_node_and_compute_activations(
                     &mut layer_statuses[j..j + 2],
-                    labels,
+                    force_activate_nodes,
                     sparsity,
                 );
             }
 
+            // compute loss
+            let normalization_constant: f32 = layer_statuses[self.number_of_layers]
+                .active_values
+                .iter()
+                .sum();
+            for k in 0..layer_statuses[self.number_of_layers].active_nodes.len() {
+                let id = layer_statuses[self.number_of_layers].active_nodes[k];
+                //TODO: Compute Extra stats: labels[i];\
+                let activation = layer_statuses[self.number_of_layers].active_values[k]
+                    / normalization_constant
+                    + 0.0000001;
+
+                // TODO: check gradient
+                let expect = if case.labels.contains(&(id as u32)) {
+                    1.0 / case.labels.len() as f32
+                } else {
+                    0.0
+                };
+                layer_statuses[self.number_of_layers].deltas[k] =
+                    (expect - activation) / batch_size as f32;
+            }
+
             // backpropagate
             for j in (0..self.number_of_layers).rev() {
-                for k in 0..layer_statuses[j + 1].active_nodes.len() {
-                    let id = layer_statuses[j + 1].active_nodes[k];
-                    if j == self.number_of_layers - 1 {
-                        //TODO: Compute Extra stats: labels[i];
-                        let normalization_constant = layer_statuses[j + 1].normalization_constant;
-
-                        let activation = layer_statuses[j + 1].active_values[k]
-                            / normalization_constant
-                            + 0.0000001;
-
-                        // TODO: check gradient
-                        let expect = if case.labels.contains(&(id as u32)) {
-                            1.0 / case.labels.len() as f32
-                        } else {
-                            0.0
-                        };
-                        layer_statuses[j + 1].deltas[k] = (expect - activation) / batch_size as f32;
-                    }
-                    self.hidden_layers[j].nodes[id].back_propagate(
-                        layer_statuses[j + 1].deltas[k],
-                        &mut layer_statuses[j],
-                        learning_rate,
-                    );
-                }
+                self.hidden_layers[j].back_propagate(&mut layer_statuses[j..j + 2]);
             }
         }
+
+        let learning_rate = self.learning_rate * (1.0 - BETA2.powi(iter as i32 + 1)).sqrt()
+            / (1.0 - BETA1.powi(iter as i32 + 1));
 
         // update weights
         for layer in &mut self.hidden_layers {

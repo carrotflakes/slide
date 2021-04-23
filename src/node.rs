@@ -1,28 +1,13 @@
-use crate::{adam::Adam, layer::LayerStatus};
-
-#[derive(Clone, Copy)]
-pub enum NodeType {
-    Relu,
-    Softmax,
-    OriginalSoftmax,
-}
+use crate::{layer::LayerStatus, param::Param};
 
 pub struct Node {
-    pub weights: Vec<f32>,
-    pub bias: f32,
-    pub gradients: Vec<Adam>,
-    pub bias_gradient: Adam,
+    pub weights: Vec<Param>,
+    pub bias: Param,
 }
 
 impl Node {
-    pub fn new(size: usize, weights: Vec<f32>, bias: f32) -> Self {
-        assert_eq!(weights.len(), size);
-        Self {
-            weights,
-            bias,
-            gradients: vec![Adam::default(); size],
-            bias_gradient: Adam::default(),
-        }
+    pub fn new(weights: Vec<Param>, bias: Param) -> Self {
+        Self { weights, bias }
     }
 
     pub fn get_size(&self) -> usize {
@@ -32,26 +17,18 @@ impl Node {
     pub fn compute_value(&self, indices: &[usize], values: &[f32]) -> f32 {
         let mut value = 0.0;
         for i in 0..indices.len() {
-            value += self.weights[indices[i]] * values[i];
+            value += self.weights[indices[i]].value * values[i];
         }
-        value + self.bias
+        value + self.bias.value
     }
 
-    pub fn back_propagate(
-        &mut self,
-        delta: f32,
-        layer_status: &mut LayerStatus,
-        _learning_rate: f32,
-    ) {
-        for i in 0..layer_status.active_nodes.len() {
-            let id = layer_status.active_nodes[i];
-            let value = layer_status.active_values[i];
-            if value > 0.0 {
-                layer_status.deltas[i] += delta * self.weights[id];
-            }
-            let grad_t = delta * value;
-            self.gradients[id].update(grad_t);
+    pub fn back_propagate(&mut self, delta: f32, prev_layer_status: &mut LayerStatus) {
+        for i in 0..prev_layer_status.active_nodes.len() {
+            let id = prev_layer_status.active_nodes[i];
+            let value = prev_layer_status.active_values[i];
+            prev_layer_status.deltas[i] += delta * self.weights[id].value;
+            self.weights[id].add_error(delta * value);
         }
-        self.bias_gradient.update(delta);
+        self.bias.add_error(delta);
     }
 }

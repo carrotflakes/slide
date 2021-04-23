@@ -7,5 +7,6 @@ pub mod layer;
 pub mod lsh;
 pub mod network;
 pub mod node;
+pub mod param;
 // pub mod sparse_random_projection;
 // pub mod wta_hash;

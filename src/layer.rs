@@ -2,18 +2,20 @@ use std::collections::HashSet;
 
 use rand::{seq::SliceRandom, Rng};
 
-use crate::{
-    hasher::Hasher,
-    lsh::Lsh,
-    node::{Node, NodeType},
-};
+use crate::{hasher::Hasher, lsh::Lsh, node::Node, param::Param};
+
+#[derive(Clone, Copy)]
+pub enum NodeType {
+    Relu,
+    Softmax,
+    OriginalSoftmax,
+}
 
 #[derive(Default)]
 pub struct LayerStatus {
     pub active_nodes: Vec<usize>,
     pub active_values: Vec<f32>,
     pub deltas: Vec<f32>,
-    pub normalization_constant: f32,
 }
 
 impl LayerStatus {
@@ -22,7 +24,6 @@ impl LayerStatus {
             active_nodes: indices.to_vec(),
             active_values: values.to_vec(),
             deltas: vec![0.0; indices.len()],
-            normalization_constant: 0.0,
         }
     }
 
@@ -33,7 +34,7 @@ impl LayerStatus {
 
 pub struct Layer<H: Hasher> {
     node_type: NodeType,
-    pub nodes: Vec<Node>,
+    nodes: Vec<Node>,
     rand_ids: Vec<u32>,
     k: usize,
     l: usize,
@@ -41,6 +42,7 @@ pub struct Layer<H: Hasher> {
     pub sparsity: f32,
     hasher: H,
     hash_tables: Lsh,
+    min_active_nodes: usize,
 }
 
 impl<H: Hasher> Layer<H> {
@@ -59,11 +61,13 @@ impl<H: Hasher> Layer<H> {
 
         let mut nodes = Vec::with_capacity(number_of_nodes);
         for _ in 0..number_of_nodes {
-            let mut weights = vec![0.0; previous_layer_num_of_nodes];
-            weights.fill_with(|| rng.gen_range(0.0..0.01));
-            let bias = rng.gen_range(0.0..0.01);
+            let mut weights = Vec::with_capacity(previous_layer_num_of_nodes);
+            weights.resize_with(previous_layer_num_of_nodes, || {
+                Param::new(rng.gen_range(0.0..0.01))
+            });
+            let bias = Param::new(rng.gen_range(0.0..0.01));
 
-            nodes.push(Node::new(previous_layer_num_of_nodes, weights, bias));
+            nodes.push(Node::new(weights, bias));
         }
 
         let hasher = H::new(k * l, previous_layer_num_of_nodes);
@@ -79,6 +83,7 @@ impl<H: Hasher> Layer<H> {
             hasher,
             hash_tables,
             sparsity,
+            min_active_nodes: 1000,
         };
 
         layer.rehash();
@@ -93,7 +98,9 @@ impl<H: Hasher> Layer<H> {
     pub fn rehash(&mut self) {
         self.hash_tables.clear();
         for (i, node) in self.nodes.iter_mut().enumerate() {
-            let hashes = self.hasher.hash(&node.weights);
+            let hashes = self
+                .hasher
+                .hash(&node.weights.iter().map(|w| w.value).collect::<Vec<_>>());
             let hash_indices = self.hash_tables.hashes_to_indices::<H>(&hashes);
             self.hash_tables.add(&hash_indices, i as u32);
         }
@@ -106,7 +113,7 @@ impl<H: Hasher> Layer<H> {
     pub fn query_active_node_and_compute_activations(
         &self,
         layer_statuses: &mut [LayerStatus],
-        labels: &[u32],
+        force_activate_nodes: &[u32],
         sparsity: f32,
     ) {
         let mut it = layer_statuses.iter_mut();
@@ -129,21 +136,12 @@ impl<H: Hasher> Layer<H> {
 
             // Get candidates from hashset
             let mut active_nodes = HashSet::<u32>::new();
-
-            // Make sure that the true label node is in candidates
-            if matches!(self.node_type, NodeType::Softmax) {
-                for label in labels.iter() {
-                    active_nodes.insert(*label);
-                }
-            }
-
-            for id in actives {
-                active_nodes.insert(id);
-            }
+            active_nodes.extend(force_activate_nodes);
+            active_nodes.extend(actives);
 
             let offset = rand::random::<usize>() % self.nodes.len();
             for i in 0..self.nodes.len() {
-                if active_nodes.len() >= 1000 {
+                if active_nodes.len() >= self.min_active_nodes {
                     break;
                 }
                 let i = (i + offset) % self.nodes.len();
@@ -159,51 +157,65 @@ impl<H: Hasher> Layer<H> {
                 .active_values
                 .push(self.nodes[id].compute_value(&active_nodes, &active_values));
         }
+        self.activate(&mut layer_status.active_values);
 
         layer_status.deltas.clear();
         layer_status
             .deltas
             .resize(layer_status.active_nodes.len(), 0.0);
+    }
 
-        // apply activation function
+    pub fn back_propagate(&mut self, layer_statuses: &mut [LayerStatus]) {
+        let mut it = layer_statuses.iter_mut();
+        let prev_layer_status = it.next().unwrap();
+        let layer_status = it.next().unwrap();
+        for i in 0..layer_status.size() {
+            let id = layer_status.active_nodes[i];
+            let value = layer_status.active_values[i];
+            let delta = layer_status.deltas[i];
+            let delta = match self.node_type {
+                NodeType::Relu => {
+                    if value > 0.0 {
+                        delta
+                    } else {
+                        0.0
+                    }
+                }
+                NodeType::Softmax => delta,
+                NodeType::OriginalSoftmax => delta,
+            };
+            self.nodes[id].back_propagate(delta, prev_layer_status);
+        }
+    }
+
+    pub fn update_weights(&mut self, rate: f32) {
+        for node in &mut self.nodes {
+            for j in 0..node.get_size() {
+                node.weights[j].update(rate);
+            }
+            node.bias.update(rate);
+        }
+    }
+
+    fn activate(&self, values: &mut [f32]) {
         match self.node_type {
             NodeType::Relu => {
-                for value in layer_status.active_values.iter_mut() {
+                for value in values {
                     *value = value.max(0.0);
                 }
             }
             NodeType::Softmax => {
-                layer_status.normalization_constant = 0.0;
-                let sum_value: f32 = layer_status
-                    .active_values.iter().map(|v| v.exp()).sum();
-                for i in 0..layer_status.active_nodes.len() {
-                    let value = layer_status.active_values[i].exp() / sum_value;
-                    layer_status.active_values[i] = value;
-                    layer_status.normalization_constant += value;
+                let sum_value: f32 = values.iter().map(|v| v.exp()).sum();
+                for value in values {
+                    *value = value.exp() / sum_value;
                 }
             }
             NodeType::OriginalSoftmax => {
-                layer_status.normalization_constant = 0.0;
-                let max_value = layer_status
-                    .active_values
-                    .iter()
-                    .fold(0.0f32, |a, b| a.max(*b));
-                for i in 0..layer_status.active_nodes.len() {
-                    let value = (layer_status.active_values[i] - max_value).exp();
-                    layer_status.active_values[i] = value;
-                    layer_status.normalization_constant += value;
+                let max_value = values.iter().fold(0.0f32, |a, b| a.max(*b));
+                for value in values {
+                    *value = (*value - max_value).exp();
                 }
             }
-        }
-    }
-
-    pub fn update_weights(&mut self, learning_rate: f32) {
-        for i in 0..self.nodes.len() {
-            let mut node = &mut self.nodes[i];
-            for j in 0..node.get_size() {
-                node.weights[j] += learning_rate * node.gradients[j].gradient();
-            }
-            node.bias += learning_rate * node.bias_gradient.gradient();
         }
     }
 }

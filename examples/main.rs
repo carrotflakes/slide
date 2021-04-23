@@ -1,6 +1,6 @@
 use slide::densified_wta_hash::DensifiedWtaHash;
 use slide::network::{Case, LayerConfig, Network};
-use slide::node::NodeType;
+use slide::layer::NodeType;
 
 fn main() {
     let batch_size = 64;
