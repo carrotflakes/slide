@@ -52,6 +52,6 @@ impl Bucket {
     }
 
     pub fn get_all(&self) -> &[u32] {
-        &self.arr[..self.count]
+        &self.arr[..self.count.min(BUCKET_SIZE)]
     }
 }
