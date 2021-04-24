@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use rand::{seq::SliceRandom, Rng};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{hasher::Hasher, lsh::Lsh, node::Node, param::Param};
 
@@ -191,12 +192,12 @@ impl<H: Hasher> Layer<H> {
     }
 
     pub fn update_weights(&mut self, rate: f32) {
-        for node in &mut self.nodes {
+        self.nodes.par_iter_mut().for_each(|node| {
             for j in 0..node.get_size() {
                 node.weights[j].update(rate);
             }
             node.bias.update(rate);
-        }
+        });
     }
 
     fn activate(&self, values: &mut [f32]) {
