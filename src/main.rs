@@ -1,4 +1,4 @@
-use slide::densified_wta_hash::DensifiedWtaHash;
+use slide::densified_wta_hash_org::DensifiedWtaHash;
 use slide::network::{Case, LayerConfig, Network};
 use slide::layer::NodeType;
 

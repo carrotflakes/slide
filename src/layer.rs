@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use rand::{seq::SliceRandom, Rng};
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use rayon::prelude::*;
 
 use crate::{hasher::Hasher, lsh::Lsh, node::Node, param::Param};
 
@@ -97,7 +97,6 @@ impl<H: Hasher> Layer<H> {
     }
 
     pub fn rehash(&mut self) {
-        use rayon::prelude::*;
         self.hash_tables.clear();
         let hasher = &self.hasher;
         let hash_tables = &self.hash_tables;
