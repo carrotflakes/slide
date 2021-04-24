@@ -28,6 +28,7 @@ impl DensifiedWtaHash {
                 count += 1;
                 if count > 100 {
                     // Densification failure
+                    hash = 0; // Work around...
                     break;
                 }
             }

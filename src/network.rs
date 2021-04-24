@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 use crate::{
     adam::{BETA1, BETA2},
     hasher::Hasher,
@@ -62,8 +64,8 @@ impl<H: Hasher> Network<H> {
         }
     }
 
-    pub fn predict(&mut self, case: &Case, input_id: usize) -> usize {
-        let layer_statuses = &mut self.train_statuses[input_id];
+    pub fn predict(&mut self, case: &Case) -> usize {
+        let layer_statuses = &mut self.train_statuses[0];
         layer_statuses[0] = LayerStatus::from_input(&case.indices, &case.values);
         // inference
         for j in 0..self.number_of_layers {
@@ -89,19 +91,44 @@ impl<H: Hasher> Network<H> {
     }
 
     pub fn test(&mut self, cases: &[Case]) -> usize {
-        let mut correct_pred = 0;
-        for i in 0..cases.len().min(self.train_statuses.len()) {
-            let predict_class = self.predict(&cases[i], i);
-            if cases[i].labels.contains(&(predict_class as u32)) {
-                correct_pred += 1;
-            }
-        }
-        correct_pred
+        let hidden_layers = &self.hidden_layers;
+        let number_of_layers = self.number_of_layers;
+        self.train_statuses
+            .par_iter_mut()
+            .enumerate()
+            .map(|(i, layer_statuses)| {
+                let case = &cases[i];
+                layer_statuses[0] = LayerStatus::from_input(&case.indices, &case.values);
+                // inference
+                for j in 0..number_of_layers {
+                    hidden_layers[j].query_active_node_and_compute_activations(
+                        &mut layer_statuses[j..j + 2],
+                        &[],
+                        1.0,
+                    );
+                }
+
+                // compute top-1
+                let mut max_act = f32::NEG_INFINITY;
+                let mut predict_class = 0;
+                let last_layer = &layer_statuses[number_of_layers];
+                for j in 0..last_layer.size() {
+                    let act = last_layer.active_values[j];
+                    if max_act < act {
+                        max_act = act;
+                        predict_class = last_layer.active_nodes[j];
+                    }
+                }
+                if case.labels.contains(&(predict_class as u32)) {
+                    1
+                } else {
+                    0
+                }
+            })
+            .sum()
     }
 
     pub fn train(&mut self, cases: &[Case], iter: usize, rehash: bool, rebuild: bool) {
-        use rayon::prelude::*;
-
         let batch_size = self.train_statuses.len().min(cases.len());
         if iter % 6946 == 6945 {
             self.hidden_layers[1].random_nodes();
@@ -110,53 +137,56 @@ impl<H: Hasher> Network<H> {
         let start = std::time::Instant::now();
         let hidden_layers = &self.hidden_layers;
         let number_of_layers = self.number_of_layers;
-        self.train_statuses.par_iter_mut().enumerate().for_each(|(i, layer_statuses)| {
-            let case = &cases[i];
-            layer_statuses[0] = LayerStatus::from_input(&case.indices, &case.values);
+        self.train_statuses
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, layer_statuses)| {
+                let case = &cases[i];
+                layer_statuses[0] = LayerStatus::from_input(&case.indices, &case.values);
 
-            // inference
-            for j in 0..number_of_layers {
-                let sparsity = hidden_layers[j].sparsity;
-                let force_activate_nodes = if j == number_of_layers - 1 {
-                    case.labels.as_slice()
-                } else {
-                    &[]
-                };
-                hidden_layers[j].query_active_node_and_compute_activations(
-                    &mut layer_statuses[j..j + 2],
-                    force_activate_nodes,
-                    sparsity,
-                );
-            }
+                // inference
+                for j in 0..number_of_layers {
+                    let sparsity = hidden_layers[j].sparsity;
+                    let force_activate_nodes = if j == number_of_layers - 1 {
+                        case.labels.as_slice()
+                    } else {
+                        &[]
+                    };
+                    hidden_layers[j].query_active_node_and_compute_activations(
+                        &mut layer_statuses[j..j + 2],
+                        force_activate_nodes,
+                        sparsity,
+                    );
+                }
 
-            // compute loss
-            let normalization_constant: f32 = layer_statuses[number_of_layers]
-                .active_values
-                .iter()
-                .sum();
-            for k in 0..layer_statuses[number_of_layers].active_nodes.len() {
-                let id = layer_statuses[number_of_layers].active_nodes[k];
-                //TODO: Compute Extra stats: labels[i];\
-                let activation = layer_statuses[number_of_layers].active_values[k]
-                    / normalization_constant
-                    + 0.0000001;
+                // compute loss
+                let normalization_constant: f32 =
+                    layer_statuses[number_of_layers].active_values.iter().sum();
+                for k in 0..layer_statuses[number_of_layers].active_nodes.len() {
+                    let id = layer_statuses[number_of_layers].active_nodes[k];
+                    //TODO: Compute Extra stats: labels[i];\
+                    let activation = layer_statuses[number_of_layers].active_values[k]
+                        / normalization_constant
+                        + 0.0000001;
 
-                // TODO: check gradient
-                let expect = if case.labels.contains(&(id as u32)) {
-                    1.0 / case.labels.len() as f32
-                } else {
-                    0.0
-                };
-                layer_statuses[number_of_layers].deltas[k] =
-                    (expect - activation) / batch_size as f32;
-            }
+                    // TODO: check gradient
+                    let expect = if case.labels.contains(&(id as u32)) {
+                        1.0 / case.labels.len() as f32
+                    } else {
+                        0.0
+                    };
+                    layer_statuses[number_of_layers].deltas[k] =
+                        (expect - activation) / batch_size as f32;
+                }
 
-            // backpropagate
-            for j in (0..number_of_layers).rev() {#[allow(mutable_transmutes)]
-                let layer = unsafe {std::mem::transmute::<_, &mut Layer<H>>(&hidden_layers[j])};
-                layer.back_propagate(&mut layer_statuses[j..j + 2]);
-            }
-        });
+                // backpropagate
+                for j in (0..number_of_layers).rev() {
+                    #[allow(mutable_transmutes)]
+                    let layer =
+                        unsafe { std::mem::transmute::<_, &mut Layer<H>>(&hidden_layers[j]) };
+                    layer.back_propagate(&mut layer_statuses[j..j + 2]);
+                }
+            });
         println!("step1: {:?}", start.elapsed());
 
         let learning_rate = self.learning_rate * (1.0 - BETA2.powi(iter as i32 + 1)).sqrt()

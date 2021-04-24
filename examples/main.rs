@@ -73,7 +73,7 @@ fn main() {
             "{:>5}: {:?}",
             i,
             (0..10)
-                .map(|i| network.predict(&cases[i], 0))
+                .map(|i| network.predict(&cases[i]))
                 .collect::<Vec<_>>()
         );
     }
