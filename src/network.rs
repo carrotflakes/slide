@@ -134,7 +134,7 @@ impl<H: Hasher> Network<H> {
             self.hidden_layers[1].random_nodes();
         }
 
-        let start = std::time::Instant::now();
+        // let start = std::time::Instant::now();
         let hidden_layers = &self.hidden_layers;
         let number_of_layers = self.number_of_layers;
         self.train_statuses
@@ -187,13 +187,13 @@ impl<H: Hasher> Network<H> {
                     layer.back_propagate(&mut layer_statuses[j..j + 2]);
                 }
             });
-        println!("step1: {:?}", start.elapsed());
+        // print!("step1: {:?}", start.elapsed());
 
         let learning_rate = self.learning_rate * (1.0 - BETA2.powi(iter as i32 + 1)).sqrt()
             / (1.0 - BETA1.powi(iter as i32 + 1));
 
         // update weights
-        let start = std::time::Instant::now();
+        // let start = std::time::Instant::now();
         for layer in &mut self.hidden_layers {
             layer.update_weights(learning_rate);
             if rebuild && layer.sparsity < 1.0 {
@@ -203,6 +203,6 @@ impl<H: Hasher> Network<H> {
                 layer.rehash();
             }
         }
-        println!("step2: {:?}", start.elapsed());
+        // println!(", step2: {:?}", start.elapsed());
     }
 }

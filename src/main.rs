@@ -10,7 +10,7 @@ const TRAIN_FILE: &str = "../Amazon/amazon_train.txt";
 const TEST_FILE: &str = "../Amazon/amazon_test.txt";
 
 fn main() {
-    let learning_rate = 0.0001;
+    let learning_rate = 0.001;
     let input_size = 135909;
 
     let layers = [
@@ -71,7 +71,10 @@ fn train(num_batches: usize, network: &mut Network<DensifiedWtaHash>, epoch: usi
         let iter = epoch * num_batches + i;
         let rehash = iter % (CASE_PER_REHASH / BATCH_SIZE) == CASE_PER_REHASH / BATCH_SIZE - 1;
         let rebuild = iter % (CASE_PER_REBUILD / BATCH_SIZE) == CASE_PER_REBUILD / BATCH_SIZE - 1;
-        network.train(&cases, iter, rehash, rebuild)
+        network.train(&cases, iter, rehash, rebuild);
+        if i % 20 == 0 {
+            println!("epoch {}, training {}% done.", epoch, 100.0 * i as f32 / num_batches as f32);
+        }
     }
 }
 
@@ -80,7 +83,8 @@ fn test(num_batches: usize, network: &mut Network<DensifiedWtaHash>, iter: usize
     let file = std::fs::File::open(TEST_FILE).unwrap();
     let reader = std::io::BufReader::new(file);
     let mut lines = reader.lines().skip(1);
-    for _ in 0..num_batches {
+    let mut correct_pred_sum = 0;
+    for i in 0..num_batches {
         let mut cases = Vec::new();
         while let Some(Ok(str)) = lines.next() {
             let a = str.split(' ').skip(1).map(|s| s.split(':').collect::<Vec<_>>()).collect::<Vec<_>>();
@@ -97,6 +101,8 @@ fn test(num_batches: usize, network: &mut Network<DensifiedWtaHash>, iter: usize
         }
 
         let correct_pred = network.test(&cases);
-        println!("iter {} correct {}/{}", iter, correct_pred, cases.len());
+        println!("test {} correct {}/{}", i, correct_pred, cases.len());
+        correct_pred_sum += correct_pred;
     }
+    println!("iter {}, test finished correct {}%", iter, 100.0 * correct_pred_sum as f32 / (BATCH_SIZE * num_batches) as f32);
 }
