@@ -96,14 +96,16 @@ impl<H: Hasher> Layer<H> {
     }
 
     pub fn rehash(&mut self) {
+        use rayon::prelude::*;
         self.hash_tables.clear();
-        for (i, node) in self.nodes.iter_mut().enumerate() {
-            let hashes = self
-                .hasher
-                .hash(&node.weights.iter().map(|w| w.value).collect::<Vec<_>>());
-            let hash_indices = self.hash_tables.hashes_to_indices::<H>(&hashes);
-            self.hash_tables.add(&hash_indices, i as u32);
-        }
+        let hasher = &self.hasher;
+        let hash_tables = &self.hash_tables;
+        self.nodes.par_iter().enumerate().for_each(|(i, node)| {
+            let hashes = hasher.hash(&node.weights.iter().map(|w| w.value).collect::<Vec<_>>());
+            let hash_indices = hash_tables.hashes_to_indices::<H>(&hashes);
+            #[allow(mutable_transmutes)]
+            unsafe { std::mem::transmute::<_, &mut Lsh>(hash_tables) }.add(&hash_indices, i as u32);
+        });
     }
 
     pub fn random_nodes(&mut self) {
