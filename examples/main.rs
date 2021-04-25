@@ -46,6 +46,7 @@ fn main() {
             rand::random::<usize>() % 5 * 10 + label,
             rand::random::<usize>() % (5 * 10),
         ];
+        indices.sort();
         indices.dedup();
         let mut values = vec![];
         values.resize(indices.len(), 1.0);
