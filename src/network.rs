@@ -160,14 +160,9 @@ impl<H: Hasher> Network<H> {
                 }
 
                 // compute loss
-                let normalization_constant: f32 =
-                    layer_statuses[number_of_layers].active_values.iter().sum();
                 for k in 0..layer_statuses[number_of_layers].active_nodes.len() {
                     let id = layer_statuses[number_of_layers].active_nodes[k];
-                    //TODO: Compute Extra stats: labels[i];\
-                    let activation = layer_statuses[number_of_layers].active_values[k]
-                        / normalization_constant
-                        + 0.0000001;
+                    let activation = layer_statuses[number_of_layers].active_values[k] + 0.0000001;
 
                     // TODO: check gradient
                     let expect = if case.labels.contains(&(id as u32)) {

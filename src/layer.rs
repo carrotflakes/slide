@@ -9,7 +9,6 @@ use crate::{hasher::Hasher, lsh::Lsh, node::Node, param::Param};
 pub enum NodeType {
     Relu,
     Softmax,
-    OriginalSoftmax,
 }
 
 #[derive(Default)]
@@ -184,7 +183,6 @@ impl<H: Hasher> Layer<H> {
                     }
                 }
                 NodeType::Softmax => delta,
-                NodeType::OriginalSoftmax => delta,
             };
             self.nodes[id].back_propagate(delta, prev_layer_status);
         }
@@ -207,15 +205,13 @@ impl<H: Hasher> Layer<H> {
                 }
             }
             NodeType::Softmax => {
-                let sum_value: f32 = values.iter().map(|v| v.exp()).sum();
-                for value in values {
-                    *value = value.exp() / sum_value;
-                }
-            }
-            NodeType::OriginalSoftmax => {
                 let max_value = values.iter().fold(0.0f32, |a, b| a.max(*b));
-                for value in values {
+                for value in values.iter_mut() {
                     *value = (*value - max_value).exp();
+                }
+                let sum_value: f32 = values.iter().sum();
+                for value in values {
+                    *value = *value / sum_value;
                 }
             }
         }
